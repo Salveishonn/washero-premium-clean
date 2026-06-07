@@ -9,6 +9,7 @@ import {
   fetchUserPushSubscriptions,
   getWebPushPublicKey,
   isWebPushSupported,
+  OperatorPushTestError,
   sendOperatorTestPush,
   subscribeOperatorPush,
 } from "@/lib/web-push";
@@ -100,12 +101,17 @@ export function OperatorNotifications({ userId }: Props) {
         toast.message("No hay suscripciones activas para enviar la prueba.");
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "push_failed";
-      if (msg === "missing_vapid_keys") {
-        toast.error("Faltan claves VAPID en el servidor (WEB_PUSH_VAPID_*).");
+      if (e instanceof OperatorPushTestError) {
+        console.error("[OperatorNotifications] test push failed", {
+          functionName: e.functionName,
+          status: e.status,
+          statusCode: e.statusCode,
+          details: e.details,
+        });
       } else {
-        toast.error("No se pudo enviar la notificación de prueba.");
+        console.error("[OperatorNotifications] test push failed", e);
       }
+      toast.error("No se pudo enviar la notificación de prueba.");
     } finally {
       setTesting(false);
     }

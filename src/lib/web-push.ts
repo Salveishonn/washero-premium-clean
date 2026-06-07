@@ -32,6 +32,70 @@ export type PushSubscriptionRow = {
   endpoint: string;
 };
 
+type EdgeFunctionFailureBody = {
+  ok?: boolean;
+  status?: string;
+  error?: string;
+  skipped?: string;
+  sent?: number;
+  removed?: number;
+};
+
+export class OperatorPushTestError extends Error {
+  functionName: string;
+  status?: string;
+  statusCode?: number;
+  details?: unknown;
+
+  constructor(args: {
+    message: string;
+    functionName: string;
+    status?: string;
+    statusCode?: number;
+    details?: unknown;
+  }) {
+    super(args.message);
+    this.name = "OperatorPushTestError";
+    this.functionName = args.functionName;
+    this.status = args.status;
+    this.statusCode = args.statusCode;
+    this.details = args.details;
+  }
+}
+
+function getFunctionResponse(error: unknown): Response | null {
+  if (!error || typeof error !== "object" || !("context" in error)) return null;
+  const context = (error as { context?: unknown }).context;
+  return context instanceof Response ? context : null;
+}
+
+async function parseFunctionFailure(error: unknown): Promise<{
+  status?: string;
+  statusCode?: number;
+  details?: unknown;
+}> {
+  const response = getFunctionResponse(error);
+  if (!response) return {};
+
+  try {
+    const details = (await response.clone().json()) as EdgeFunctionFailureBody;
+    return {
+      status: details.status ?? details.error,
+      statusCode: response.status,
+      details,
+    };
+  } catch {
+    try {
+      return {
+        statusCode: response.status,
+        details: await response.clone().text(),
+      };
+    } catch {
+      return { statusCode: response.status };
+    }
+  }
+}
+
 export async function fetchUserPushSubscriptions(userId: string): Promise<PushSubscriptionRow[]> {
   const { data, error } = await supabase
     .from("notification_subscriptions")
@@ -88,19 +152,33 @@ export async function subscribeOperatorPush(userId: string): Promise<void> {
 }
 
 export async function sendOperatorTestPush(): Promise<{ sent?: number }> {
-  const { data, error } = await supabase.functions.invoke("send-operator-push", {
-    body: {
-      test: true,
-      title: "Washero",
-      body: "Notificaciones activadas correctamente.",
-      url: "/operator/hoy",
-      force: true,
-    },
-  });
-  if (error) throw error;
-  const body = data as { ok?: boolean; status?: string; sent?: number } | null;
+  const functionName = "send-operator-push";
+  const payload = {
+    test: true,
+    title: "Washero",
+    body: "Notificaciones activadas correctamente.",
+    url: "/operator/hoy",
+    force: true,
+  };
+  const { data, error } = await supabase.functions.invoke(functionName, { body: payload });
+  if (error) {
+    const failure = await parseFunctionFailure(error);
+    throw new OperatorPushTestError({
+      message: failure.status ?? error.message ?? "push_failed",
+      functionName,
+      status: failure.status,
+      statusCode: failure.statusCode,
+      details: failure.details ?? error,
+    });
+  }
+  const body = data as EdgeFunctionFailureBody | null;
   if (!body?.ok) {
-    throw new Error(body?.status ?? "push_failed");
+    throw new OperatorPushTestError({
+      message: body?.status ?? "push_failed",
+      functionName,
+      status: body?.status,
+      details: body,
+    });
   }
   return { sent: body.sent };
 }
