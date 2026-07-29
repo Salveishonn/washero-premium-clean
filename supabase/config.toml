@@ -33,6 +33,9 @@ verify_jwt = true
 [functions.botmaker-create-booking]
 verify_jwt = false
 
+[functions.botmaker-booking-tools]
+verify_jwt = false
+
 [functions.validate-address-location]
 verify_jwt = false
 
