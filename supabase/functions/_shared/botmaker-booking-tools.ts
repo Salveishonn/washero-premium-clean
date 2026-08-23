@@ -13,8 +13,9 @@ import {
   tryCreateBooking,
   type CoreBookingUnitInput,
 } from "./booking-core.ts";
-import { normalizePhone } from "./botmaker-booking.ts";
+import { normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
+import { parseArgentinaMobile } from "./argentina-phone.ts";
 import { calculateBookingQuote } from "./pricing-items.ts";
 import {
   addDaysIso,
@@ -633,6 +634,8 @@ export function todayInArgentina(): string {
  *  (local 10-digit, 54xxxxxxxxxx, 549xxxxxxxxxx, +549xxxxxxxxxx). Look up all of them so a
  *  customer always finds their own bookings regardless of which channel created them. */
 export function phoneLookupVariants(phone: string): string[] {
+  const parsed = parseArgentinaMobile(phone);
+  if (parsed.ok) return parsed.lookupVariants;
   const raw = String(phone ?? "").trim();
   const digits = raw.replace(/\D/g, "");
   let local = digits;

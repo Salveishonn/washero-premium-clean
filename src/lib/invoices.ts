@@ -94,6 +94,24 @@ export async function generateInvoiceForBooking(bookingId: string): Promise<Gene
   return { ok: true, invoiceId, created: !existingBefore?.id };
 }
 
+export async function deliverInvoice(bookingId: string): Promise<{
+  ok: boolean;
+  channel?: string;
+  skipped?: string;
+  error?: string;
+}> {
+  const { data, error } = await supabase.functions.invoke("deliver-invoice", {
+    body: { booking_id: bookingId },
+  });
+  if (error) return { ok: false, error: error.message };
+  return (data ?? { ok: false, error: "empty_response" }) as {
+    ok: boolean;
+    channel?: string;
+    skipped?: string;
+    error?: string;
+  };
+}
+
 export function invoiceStatusLabel(status: string | null | undefined) {
   switch (status) {
     case "issued":

@@ -1,6 +1,7 @@
 // Admin review: approve / reject / link Transferencia payment receipts.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { scheduleBookingConfirmedWhatsApp } from "../_shared/whatsapp-automation.ts";
+import { deliverInvoiceForBooking } from "../_shared/invoice-delivery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -200,6 +201,9 @@ Deno.serve(async (req) => {
       scheduleBookingConfirmedWhatsApp(admin, receipt.booking_id);
       whatsapp_scheduled = true;
     }
+    void deliverInvoiceForBooking(admin, receipt.booking_id).catch((e) =>
+      console.error("[approve-payment-receipt] invoice delivery", e),
+    );
 
     return json({
       ok: true,

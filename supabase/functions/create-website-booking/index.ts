@@ -17,8 +17,6 @@ const corsHeaders = {
 const PROJECT_REF = "domslcbxgqbylmciqrxt";
 const SITE_ORIGIN = Deno.env.get("PUBLIC_SITE_URL") ?? "https://washero.ar";
 const WEBHOOK_URL = `https://${PROJECT_REF}.supabase.co/functions/v1/mercadopago-webhook`;
-const PUSH_INTERNAL_SECRET = Deno.env.get("PUSH_INTERNAL_SECRET") ?? "";
-const SUPABASE_URL_ROOT = Deno.env.get("SUPABASE_URL")!;
 
 type BookingUnitPayload = {
   vehicle_type?: string;
@@ -91,22 +89,6 @@ function isSlotTooSoonForPublic(dateIso: string, timeHHMM: string, nowMs = Date.
   const slotMs = slotStartUtcMsFromBuenosAires(dateIso, timeHHMM);
   if (slotMs == null) return true;
   return slotMs < nowMs + PUBLIC_MIN_LEAD_MINUTES * 60_000;
-}
-
-async function notifyOperatorPush(bookingId: string, reason: "booking_assigned_today" | "booking_updated_today" | "new_message_today") {
-  if (!PUSH_INTERNAL_SECRET) return;
-  try {
-    await fetch(`${SUPABASE_URL_ROOT}/functions/v1/send-operator-push`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": PUSH_INTERNAL_SECRET,
-      },
-      body: JSON.stringify({ booking_id: bookingId, reason }),
-    });
-  } catch (e) {
-    console.warn("[create-website-booking] send-operator-push", String(e));
-  }
 }
 
 Deno.serve(async (req) => {
@@ -220,6 +202,7 @@ Deno.serve(async (req) => {
       outside_coverage: "Esa dirección está fuera de nuestra zona de cobertura. Escribinos por WhatsApp y vemos cómo ayudarte.",
       invalid_private_neighborhood: "El barrio privado seleccionado no está disponible. Elegí otro o escribinos por WhatsApp.",
       too_many_units: "Solo podés reservar hasta 2 vehículos por turno.",
+      invalid_phone: "Ingresá un celular argentino válido, por ejemplo +54 9 11 1234-5678.",
       server_error: "No pudimos crear la reserva. Probá de nuevo.",
     };
     return json({
@@ -236,7 +219,6 @@ Deno.serve(async (req) => {
     booking.payment_method === "MercadoPago" || booking.payment_method === "Transferencia";
   if (!deferBookingConfirmationWhatsApp) {
     scheduleBookingCreatedWhatsApp(admin, booking.id);
-    await notifyOperatorPush(booking.id, "booking_assigned_today");
   }
   const baseSummary = {
     service_name: booking.service_name,

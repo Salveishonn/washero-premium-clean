@@ -15,6 +15,9 @@ export type FinanceExpense = Pick<
   | "sheet_row_key"
   | "synced_at"
   | "created_at"
+  | "source"
+  | "admin_override"
+  | "deleted_at"
 >;
 
 export type FinanceSettings = Pick<

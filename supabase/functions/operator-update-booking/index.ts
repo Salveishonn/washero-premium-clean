@@ -1,6 +1,6 @@
 // Operator-safe booking status updates (no price/customer/date changes).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { schedulePaymentConfirmedWhatsApp } from "../_shared/whatsapp-automation.ts";
+import { deliverInvoiceForBooking } from "../_shared/invoice-delivery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -184,15 +184,11 @@ Deno.serve(async (req) => {
       message_text: "Pago cobrado por operador en campo.",
     });
 
-    const { data: invId, error: invErr } = await admin.rpc("generate_invoice_for_booking", {
-      _booking_id: bookingId,
-    });
-    if (invErr) {
-      console.error("[operator-update-booking] invoice", invErr);
-    } else if (invId) {
-      invoice_id = String(invId);
-      invoice_created = true;
-      schedulePaymentConfirmedWhatsApp(admin, bookingId);
+    const delivered = await deliverInvoiceForBooking(admin, bookingId);
+    invoice_id = delivered.invoice_id;
+    invoice_created = delivered.ok && delivered.skipped !== "already_delivered";
+    if (!delivered.ok) {
+      console.error("[operator-update-booking] invoice delivery", delivered.error);
     }
   }
 

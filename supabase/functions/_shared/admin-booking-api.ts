@@ -28,6 +28,7 @@ export function normalizeVehicleType(raw: string | null | undefined): string | n
 
 const REASON_MESSAGES: Record<string, string> = {
   missing_fields: "Faltan datos para crear la reserva.",
+  invalid_phone: "Ingresá un celular argentino válido, por ejemplo +54 9 11 1234-5678.",
   invalid_service: "El servicio seleccionado no está disponible.",
   invalid_vehicle: "Tipo de vehículo inválido. Usá Auto, SUV, Pick-up u Otro.",
   invalid_payment: "Método de pago inválido.",

@@ -17,10 +17,12 @@ import {
   Pencil,
   FileText,
   Printer,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
+import { parseArgentinaMobile } from "@/lib/phone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,10 +68,10 @@ import {
   ADMIN_VEHICLE_TYPES,
   invokeCreateAdminBooking,
 } from "@/lib/admin-booking";
-import { fetchInvoiceForBooking, fmtInvoiceDate, generateInvoiceForBooking } from "@/lib/invoices";
+import { fetchInvoiceForBooking, fmtInvoiceDate, generateInvoiceForBooking, deliverInvoice } from "@/lib/invoices";
 import { OperatorAssignmentFields } from "@/components/admin/OperatorAssignmentFields";
 import { BookingWhatsAppActions } from "@/components/admin/BookingWhatsAppActions";
-import { sendBotmakerMessage } from "@/lib/botmaker-notifications";
+import { deleteBooking } from "@/lib/admin-delete";
 
 // ===========================================================================
 // Types
@@ -151,18 +153,21 @@ export async function upsertCustomerByPhone(b: {
   address?: string | null;
   neighborhood?: string | null;
 }) {
-  const phone = b.customer_phone.trim();
-  if (!phone) return null;
+  const parsed = parseArgentinaMobile(b.customer_phone);
+  if (!parsed.ok) throw new Error(parsed.error);
+  const phone = parsed.display;
   const { data: existing } = await supabase
     .from("customers")
     .select("id")
-    .eq("phone", phone)
+    .in("phone", parsed.lookupVariants)
+    .limit(1)
     .maybeSingle();
   if (existing?.id) {
     await supabase
       .from("customers")
       .update({
         full_name: b.customer_name,
+        phone,
         email: b.customer_email ?? null,
         address: b.address ?? null,
         neighborhood: b.neighborhood ?? null,
@@ -306,12 +311,14 @@ export function BookingDetail({
   booking,
   onEdit,
   onCancel,
+  onDelete,
   onQuickStatus,
   busy,
 }: {
   booking: Booking;
   onEdit: () => void;
   onCancel: () => void;
+  onDelete: () => void;
   onQuickStatus: (s: string) => void;
   busy: boolean;
 }) {
@@ -375,12 +382,9 @@ export function BookingDetail({
             ? "Pago marcado como pagado. Factura generada."
             : "Pago actualizado. La factura ya existía.",
         );
-        void sendBotmakerMessage({
-          booking_id: booking.id,
-          template_key: "payment_confirmed",
-        }).then((r) => {
-          if (!r.ok && r.error !== "duplicate_template") {
-            console.warn("[admin] payment WhatsApp", r.error);
+        void deliverInvoice(booking.id).then((r) => {
+          if (!r.ok && r.skipped !== "already_delivered") {
+            console.warn("[admin] invoice delivery", r.error);
           }
         });
       } else {
@@ -402,10 +406,7 @@ export function BookingDetail({
       toast.success(inv.created ? "Factura generada." : "La factura ya existía para esta reserva.");
       invalidatePaymentQueries();
       if (booking.payment_status === "paid") {
-        void sendBotmakerMessage({
-          booking_id: booking.id,
-          template_key: "payment_confirmed",
-        });
+        void deliverInvoice(booking.id);
       }
     },
     onError: (e: Error) => toast.error(e.message || "No pudimos generar la factura."),
@@ -677,6 +678,9 @@ export function BookingDetail({
           <Button size="sm" variant="destructive" disabled={busy} onClick={onCancel}>
             <XCircle className="mr-1 h-4 w-4" /> Cancelar
           </Button>
+          <Button size="sm" variant="destructive" disabled={busy} onClick={onDelete}>
+            <Trash2 className="mr-1 h-4 w-4" /> Eliminar
+          </Button>
         </div>
       </div>
 
@@ -768,7 +772,11 @@ export function BookingEditForm({
         .from("bookings")
         .update({
           customer_name: form.customer_name.trim(),
-          customer_phone: form.customer_phone.trim(),
+          customer_phone: (() => {
+            const parsed = parseArgentinaMobile(form.customer_phone);
+            if (!parsed.ok) throw new Error(parsed.error);
+            return parsed.display;
+          })(),
           customer_email: form.customer_email?.trim() || null,
           address: form.address.trim(),
           neighborhood: form.neighborhood.trim(),
@@ -898,10 +906,11 @@ export function BookingCreateForm({
 
   const create = useMutation({
     mutationFn: async () => {
+      const parsedPhone = parseArgentinaMobile(form.customer_phone);
+      if (!parsedPhone.ok) throw new Error(parsedPhone.error);
       if (!form.service_id) throw new Error("Elegí un servicio.");
       if (
         !form.customer_name.trim() ||
-        !form.customer_phone.trim() ||
         !form.address.trim() ||
         !form.neighborhood.trim()
       ) {
@@ -911,7 +920,7 @@ export function BookingCreateForm({
         form.scheduled_time.length === 5 ? `${form.scheduled_time}:00` : form.scheduled_time;
       const res = await invokeCreateAdminBooking({
         customer_name: form.customer_name.trim(),
-        customer_phone: form.customer_phone.trim(),
+        customer_phone: parsedPhone.display,
         customer_email: form.customer_email?.trim() || null,
         address: form.address.trim(),
         neighborhood: form.neighborhood.trim(),
@@ -1013,7 +1022,13 @@ export function BookingFormFields({
       <Field label="Teléfono">
         <Input
           value={form.customer_phone}
+          inputMode="tel"
+          placeholder="+54 9 11 1234-5678"
           onChange={(e) => update({ customer_phone: e.target.value })}
+          onBlur={() => {
+            const parsed = parseArgentinaMobile(form.customer_phone);
+            if (parsed.ok) update({ customer_phone: parsed.display });
+          }}
           required
         />
       </Field>
@@ -1217,6 +1232,62 @@ function Field({
 // Cancel confirmation dialog
 // ===========================================================================
 
+export function DeleteBookingDialog({
+  booking,
+  onOpenChange,
+  onConfirm,
+  busy,
+}: {
+  booking: Booking | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  busy?: boolean;
+}) {
+  const invoiceQuery = useQuery({
+    queryKey: ["admin", "booking-invoice", booking?.id],
+    enabled: !!booking?.id,
+    queryFn: () => fetchInvoiceForBooking(booking!.id),
+  });
+  const hasInvoice = !!invoiceQuery.data;
+  const paid = booking?.payment_status === "paid";
+  return (
+    <AlertDialog open={!!booking} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar esta reserva?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              {booking && (
+                <p>
+                  Se borra de forma permanente {booking.customer_name} · {fmtDate(booking.scheduled_date)}{" "}
+                  {fmtTime(booking.scheduled_time)}. Esto no se puede deshacer.
+                </p>
+              )}
+              {booking && (paid || hasInvoice) && (
+                <p className="text-destructive">
+                  {paid ? "El pago figura como pagado. " : ""}
+                  {hasInvoice ? "Hay una factura asociada y también se eliminará. " : ""}
+                  Si es un lavado real, usá Cancelar en lugar de borrar.
+                </p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>Volver</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Eliminando…" : "Eliminar"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function CancelBookingDialog({
   booking,
   onOpenChange,
@@ -1269,10 +1340,24 @@ export function BookingDialogs({
   onMutate: () => void;
 }) {
   const [confirmCancel, setConfirmCancel] = useState<Booking | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Booking | null>(null);
   const quickStatus = useQuickBookingStatus({
     onSuccess: () => {
       onMutate();
     },
+  });
+  const removeBooking = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await deleteBooking(id);
+      if (!res.ok) throw new Error(res.error);
+    },
+    onSuccess: () => {
+      toast.success("Reserva eliminada.");
+      setConfirmDelete(null);
+      setSelected(null);
+      onMutate();
+    },
+    onError: (e: Error) => toast.error(e.message || "No pudimos eliminar la reserva."),
   });
 
   return (
@@ -1287,6 +1372,7 @@ export function BookingDialogs({
                 setSelected(null);
               }}
               onCancel={() => setConfirmCancel(selected)}
+              onDelete={() => setConfirmDelete(selected)}
               onQuickStatus={(s) => {
                 quickStatus.mutate(
                   { id: selected.id, booking_status: s },
@@ -1297,7 +1383,7 @@ export function BookingDialogs({
                   },
                 );
               }}
-              busy={quickStatus.isPending}
+              busy={quickStatus.isPending || removeBooking.isPending}
             />
           )}
         </DialogContent>
@@ -1349,6 +1435,14 @@ export function BookingDialogs({
               },
             );
           }
+        }}
+      />
+      <DeleteBookingDialog
+        booking={confirmDelete}
+        onOpenChange={(o) => !o && setConfirmDelete(null)}
+        busy={removeBooking.isPending}
+        onConfirm={() => {
+          if (confirmDelete) removeBooking.mutate(confirmDelete.id);
         }}
       />
     </>

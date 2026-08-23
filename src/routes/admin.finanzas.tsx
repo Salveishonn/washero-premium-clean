@@ -55,7 +55,7 @@ const BOOKING_SELECT =
 const PAYMENT_SELECT = "id, amount, booking_id, provider, status, created_at";
 const RECEIPT_SELECT = "id, booking_id, status, created_at";
 const EXPENSE_SELECT =
-  "id, expense_date, payer, concept, category, amount, payment_method, notes, sheet_row_key, synced_at, created_at";
+  "id, expense_date, payer, concept, category, amount, payment_method, notes, sheet_row_key, synced_at, created_at, source, admin_override, deleted_at";
 const ID_CHUNK = 200;
 
 async function fetchInChunks<T>(
@@ -112,6 +112,7 @@ async function fetchExpenses(): Promise<FinanceExpense[]> {
   const { data, error } = await supabase
     .from("finance_expenses")
     .select(EXPENSE_SELECT)
+    .is("deleted_at", null)
     .order("expense_date", { ascending: false })
     .limit(FINANCE_QUERY_LIMIT);
   if (error) throw error;
@@ -389,15 +390,20 @@ function FinanzasPage() {
 
       <FinanceSection
         title="Gastos e inversiones"
-        description="Desde el Google Form: socios = inversión aparte; Washero = gasto operativo."
+        description="Google Form y cargas del admin. Sheets no pisa filas editadas o borradas acá."
       >
         <div className="space-y-6">
           <PartnerInvestments
             periodSummary={periodPartnerSummary}
             historicalSummary={historicalPartnerSummary}
             rows={periodPartnerRows}
+            onMutate={() => query.refetch()}
           />
-          <BusinessExpenses summary={businessSummary} rows={periodBusinessRows} />
+          <BusinessExpenses
+            summary={businessSummary}
+            rows={periodBusinessRows}
+            onMutate={() => query.refetch()}
+          />
           {netSplit && (
             <NetSplitResultCard
               result={netSplit}

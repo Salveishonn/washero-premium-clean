@@ -6,10 +6,8 @@ import {
   normalizePaymentMethod,
   normalizeVehicleType,
 } from "../_shared/admin-booking-api.ts";
-import {
-  scheduleBookingCreatedWhatsApp,
-  schedulePaymentConfirmedWhatsApp,
-} from "../_shared/whatsapp-automation.ts";
+import { scheduleBookingCreatedWhatsApp } from "../_shared/whatsapp-automation.ts";
+import { deliverInvoiceForBooking } from "../_shared/invoice-delivery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -166,7 +164,9 @@ Deno.serve(async (req) => {
     skipSources: ["botmaker"],
   });
   if ((body.payment_status ?? "pending") === "paid") {
-    schedulePaymentConfirmedWhatsApp(admin, bookingId);
+    void deliverInvoiceForBooking(admin, bookingId).catch((e) =>
+      console.error("[create-admin-booking] invoice delivery", e),
+    );
   }
 
   return json({

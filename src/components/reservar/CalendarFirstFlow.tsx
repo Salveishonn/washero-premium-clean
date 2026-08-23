@@ -30,6 +30,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { PlacesAutocomplete, type PlaceSelection } from "@/components/PlacesAutocomplete";
 import { cn } from "@/lib/utils";
 import type { BookingAttribution } from "@/lib/attribution";
+import { parseArgentinaMobile } from "@/lib/phone";
 import {
   completeWebsiteBookingSuccess,
   getCreateWebsiteBookingId,
@@ -55,6 +56,7 @@ import {
   formatDayLong,
   isoFromDate,
   isGooglePlacesDropdownTarget,
+  normalizedContactPhone,
   sortCoverageZoneNames,
   type FormState,
   type PricingItem,
@@ -598,7 +600,7 @@ function BookingForm({
 
     const payload = {
       customer_name: form.customer_name.trim(),
-      customer_phone: form.customer_phone.trim(),
+      customer_phone: normalizedContactPhone(form.customer_phone),
       customer_email: form.customer_email.trim() || null,
       address: place!.formatted_address,
       formatted_address: place!.formatted_address,
@@ -684,7 +686,7 @@ function BookingForm({
       bookingId,
       {
         email: form.customer_email.trim() || null,
-        phone: form.customer_phone.trim(),
+        phone: normalizedContactPhone(form.customer_phone),
       },
     );
   }
@@ -695,7 +697,7 @@ function BookingForm({
     !!place &&
     coverage.kind === "ok" &&
     form.customer_name.trim().length >= 2 &&
-    form.customer_phone.trim().length >= 6;
+    parseArgentinaMobile(form.customer_phone).ok;
 
   return (
     <div className="flex flex-col">
@@ -913,9 +915,14 @@ function BookingForm({
               <Input
                 id="cp"
                 inputMode="tel"
+                autoComplete="tel"
                 value={form.customer_phone}
                 onChange={(e) => update("customer_phone", e.target.value)}
-                placeholder="+54 9 11 ..."
+                onBlur={() => {
+                  const next = normalizedContactPhone(form.customer_phone);
+                  if (next !== form.customer_phone) update("customer_phone", next);
+                }}
+                placeholder="+54 9 11 1234-5678"
               />
               <FieldError msg={errors.customer_phone} />
             </div>
