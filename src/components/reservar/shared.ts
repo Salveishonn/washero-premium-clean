@@ -460,5 +460,8 @@ export async function fetchLogisticAvailability(input: {
 }
 
 export function isGooglePlacesDropdownTarget(target: EventTarget | null) {
-  return target instanceof Element && !!target.closest(".pac-container");
+  return (
+    target instanceof Element &&
+    !!target.closest(".pac-container, .washero-places-dropdown")
+  );
 }

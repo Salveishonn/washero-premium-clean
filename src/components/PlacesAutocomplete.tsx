@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, MapPin, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { extractLocalityCandidates, type CoverageAddressComponent } from "@/lib/coverage-zones";
 import {
   GOOGLE_MAPS_PUBLIC_KEY,
   GOOGLE_MAPS_PUBLIC_KEY_ENV,
@@ -12,15 +12,27 @@ import {
   parseMapsLoadFailure,
   type MapsLoadFailure,
 } from "@/lib/google-maps-loader";
+import {
+  PLACES_DROPDOWN_CLASS,
+  placeSelectionFromGooglePlace,
+  suggestionLabel,
+  type PlaceSelection,
+} from "@/lib/places-selection";
 
-export type PlaceSelection = {
-  place_id: string;
-  formatted_address: string;
-  lat: number;
-  lng: number;
-  neighborhood: string | null;
-  locality_candidates: string[];
-  address_components: CoverageAddressComponent[];
+export type { PlaceSelection };
+
+const SUGGEST_DEBOUNCE_MS = 250;
+const MIN_QUERY_LENGTH = 2;
+/** Bias results to Zona Norte / GBA where Washero operates. */
+const LOCATION_BIAS = { radius: 40_000, center: { lat: -34.48, lng: -58.55 } };
+
+type SuggestionRow = {
+  placeId: string;
+  main: string;
+  secondary: string;
+  full: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  prediction: any;
 };
 
 export function PlacesAutocomplete({
@@ -37,15 +49,27 @@ export function PlacesAutocomplete({
   disabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLUListElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const acRef = useRef<any>(null);
-  const pacBumpRef = useRef<(() => void) | null>(null);
+  const placesRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessionTokenRef = useRef<any>(null);
+  const requestIdRef = useRef(0);
+  const listId = useId();
+
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "selected" | "error">(
     GOOGLE_MAPS_PUBLIC_KEY ? "loading" : "error",
   );
   const [errorKind, setErrorKind] = useState<MapsLoadFailure | null>(
     GOOGLE_MAPS_PUBLIC_KEY ? null : "no_key",
   );
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [suggestions, setSuggestions] = useState<SuggestionRow[]>([]);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [selecting, setSelecting] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
 
   useEffect(() => {
     if (!GOOGLE_MAPS_PUBLIC_KEY) {
@@ -56,70 +80,8 @@ export function PlacesAutocomplete({
     }
 
     let cancelled = false;
-
-    const attachAutocomplete = (): boolean => {
-      const input = inputRef.current;
-      if (!input || !hasPlacesLibrary()) return false;
-      if (acRef.current) return true;
-
-      // Legacy Autocomplete remains the supported client integration in this app.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ac = new (window.google.maps.places as any).Autocomplete(input, {
-        componentRestrictions: { country: "ar" },
-        fields: ["place_id", "formatted_address", "geometry", "address_components"],
-        types: ["address"],
-      });
-      // Keep dropdown above modals (CSS handles z-index; this covers late-mounted containers).
-      const bumpPacZIndex = () => {
-        document.querySelectorAll<HTMLElement>(".pac-container").forEach((el) => {
-          el.style.zIndex = "999999";
-          el.style.pointerEvents = "auto";
-        });
-      };
-      pacBumpRef.current = bumpPacZIndex;
-      input.addEventListener("focus", bumpPacZIndex);
-      input.addEventListener("input", bumpPacZIndex);
-
-      ac.addListener("place_changed", () => {
-        const p = ac.getPlace();
-        if (!p?.place_id || !p.geometry?.location) {
-          onSelect(null);
-          setStatus("ready");
-          return;
-        }
-        const comps: CoverageAddressComponent[] = (p.address_components ?? []).map(
-          (c: { long_name?: string; short_name?: string; types?: string[] }) => ({
-            long_name: c.long_name,
-            short_name: c.short_name,
-            types: c.types,
-          }),
-        );
-        const findType = (t: string) => comps.find((c) => c.types?.includes(t))?.long_name ?? null;
-        const neighborhood =
-          findType("locality") ||
-          findType("sublocality_level_1") ||
-          findType("sublocality") ||
-          findType("neighborhood") ||
-          findType("postal_town") ||
-          findType("administrative_area_level_2") ||
-          null;
-        const locality_candidates = extractLocalityCandidates(comps, [neighborhood]);
-        const sel: PlaceSelection = {
-          place_id: p.place_id,
-          formatted_address: p.formatted_address ?? "",
-          lat: p.geometry.location.lat(),
-          lng: p.geometry.location.lng(),
-          neighborhood,
-          locality_candidates,
-          address_components: comps,
-        };
-        onChange(sel.formatted_address);
-        onSelect(sel);
-        setStatus("selected");
-      });
-      acRef.current = ac;
-      return true;
-    };
+    setStatus("loading");
+    setErrorKind(null);
 
     const fail = (kind: MapsLoadFailure) => {
       if (cancelled) return;
@@ -130,32 +92,14 @@ export function PlacesAutocomplete({
     loadGoogleMapsApi({ requirePlaces: true })
       .then(() => {
         if (cancelled) return;
-        if (!hasPlacesLibrary()) {
-          console.error("[PlacesAutocomplete] Places library missing after load");
+        if (!hasPlacesLibrary() || !window.google?.maps?.places?.AutocompleteSuggestion) {
+          console.error("[PlacesAutocomplete] Places AutocompleteSuggestion missing after load");
           fail("places_missing");
           return;
         }
-        if (attachAutocomplete()) {
-          setStatus("ready");
-          return;
-        }
-        // Input ref can lag behind dialog mount; retry briefly before failing.
-        let attempts = 0;
-        const retry = () => {
-          if (cancelled) return;
-          if (attachAutocomplete()) {
-            setStatus("ready");
-            return;
-          }
-          attempts += 1;
-          if (attempts >= 20) {
-            console.error("[PlacesAutocomplete] Address input not available for autocomplete");
-            fail("script_failed");
-            return;
-          }
-          window.setTimeout(retry, 50);
-        };
-        retry();
+        placesRef.current = window.google.maps.places;
+        sessionTokenRef.current = new window.google.maps.places.AutocompleteSessionToken();
+        setStatus("ready");
       })
       .catch((err) => {
         if (cancelled) return;
@@ -164,25 +108,158 @@ export function PlacesAutocomplete({
         fail(kind);
       });
 
-    const inputEl = inputRef.current;
     return () => {
       cancelled = true;
-      const bump = pacBumpRef.current;
-      if (inputEl && bump) {
-        inputEl.removeEventListener("focus", bump);
-        inputEl.removeEventListener("input", bump);
-      }
-      pacBumpRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryNonce]);
+
+  useEffect(() => {
+    if (status !== "ready" && status !== "selected") return;
+    const query = value.trim();
+    if (status === "selected" || query.length < MIN_QUERY_LENGTH || disabled) {
+      requestIdRef.current += 1;
+      setSuggestions([]);
+      setOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+
+    const places = placesRef.current;
+    if (!places?.AutocompleteSuggestion) return;
+
+    const requestId = ++requestIdRef.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (!sessionTokenRef.current) {
+            sessionTokenRef.current = new places.AutocompleteSessionToken();
+          }
+          const { suggestions: raw } = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions(
+            {
+              input: query,
+              includedRegionCodes: ["ar"],
+              language: "es",
+              region: "ar",
+              sessionToken: sessionTokenRef.current,
+              locationBias: LOCATION_BIAS,
+            },
+          );
+          if (requestId !== requestIdRef.current) return;
+          const rows: SuggestionRow[] = (raw ?? [])
+            .map((item: { placePrediction?: unknown }) => {
+              const prediction = item?.placePrediction;
+              if (!prediction || typeof prediction !== "object") return null;
+              const pred = prediction as {
+                placeId?: string;
+                toPlace?: () => unknown;
+                text?: { text?: string };
+                mainText?: { text?: string };
+                secondaryText?: { text?: string };
+              };
+              const placeId = String(pred.placeId ?? "").trim();
+              if (!placeId) return null;
+              const label = suggestionLabel(pred);
+              return { placeId, ...label, prediction: pred };
+            })
+            .filter((row: SuggestionRow | null): row is SuggestionRow => row !== null);
+          setSuggestions(rows);
+          setOpen(rows.length > 0);
+          setActiveIndex(rows.length > 0 ? 0 : -1);
+        } catch (err) {
+          if (requestId !== requestIdRef.current) return;
+          console.error("[PlacesAutocomplete] AutocompleteSuggestion failed", err);
+          setSuggestions([]);
+          setOpen(false);
+        }
+      })();
+    }, SUGGEST_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [value, status, disabled]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const input = inputRef.current;
+    if (!input) return;
+
+    const update = () => {
+      const rect = input.getBoundingClientRect();
+      setMenuStyle({
+        position: "fixed",
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+        zIndex: 999999,
+      });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, suggestions.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [open]);
+
+  const pickSuggestion = async (row: SuggestionRow) => {
+    if (selecting) return;
+    setSelecting(true);
+    try {
+      const place = row.prediction?.toPlace?.();
+      if (!place || typeof place.fetchFields !== "function") {
+        throw new Error("places_missing");
+      }
+      await place.fetchFields({
+        fields: ["id", "formattedAddress", "location", "addressComponents"],
+      });
+      const selection = placeSelectionFromGooglePlace(place);
+      if (!selection) {
+        onSelect(null);
+        setStatus("ready");
+        return;
+      }
+      const places = placesRef.current;
+      if (places?.AutocompleteSessionToken) {
+        sessionTokenRef.current = new places.AutocompleteSessionToken();
+      }
+      onChange(selection.formatted_address || row.full);
+      onSelect(selection);
+      setStatus("selected");
+      setSuggestions([]);
+      setOpen(false);
+    } catch (err) {
+      console.error("[PlacesAutocomplete] place details failed", err);
+      onSelect(null);
+      setStatus("ready");
+    } finally {
+      setSelecting(false);
+    }
+  };
 
   const errorMessage = errorKind
     ? MAPS_LOAD_ERROR_MESSAGES[errorKind]
     : MAPS_LOAD_ERROR_MESSAGES.script_failed;
 
   return (
-    <div className="space-y-1.5">
+    <div ref={rootRef} className="space-y-1.5">
       <div className="relative">
         <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -190,16 +267,85 @@ export function PlacesAutocomplete({
           className="pl-9"
           placeholder={placeholder ?? "Buscá tu dirección"}
           value={value}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 ? `${listId}-opt-${activeIndex}` : undefined
+          }
           onChange={(e) => {
             onChange(e.target.value);
-            // user typing invalidates prior selection
             if (status === "selected") setStatus("ready");
             onSelect(null);
           }}
-          disabled={disabled || status === "loading"}
+          onFocus={() => {
+            if (suggestions.length > 0) setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (!open || suggestions.length === 0) {
+              if (e.key === "Escape") setOpen(false);
+              return;
+            }
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveIndex((i) => (i + 1) % suggestions.length);
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+            } else if (e.key === "Enter") {
+              const row = suggestions[activeIndex] ?? suggestions[0];
+              if (row) {
+                e.preventDefault();
+                void pickSuggestion(row);
+              }
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setOpen(false);
+            }
+          }}
+          disabled={disabled || selecting}
           autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
         />
       </div>
+      {open && suggestions.length > 0 && typeof document !== "undefined"
+        ? createPortal(
+            <ul
+              ref={menuRef}
+              id={listId}
+              role="listbox"
+              style={menuStyle}
+              className={cn(
+                PLACES_DROPDOWN_CLASS,
+                "pac-container max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
+              )}
+            >
+              {suggestions.map((row, index) => (
+                <li
+                  key={row.placeId}
+                  id={`${listId}-opt-${index}`}
+                  role="option"
+                  aria-selected={index === activeIndex}
+                  className={cn(
+                    "cursor-pointer rounded-sm px-2 py-1.5 text-sm",
+                    index === activeIndex ? "bg-accent text-accent-foreground" : "hover:bg-muted",
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void pickSuggestion(row)}
+                >
+                  <div className="font-medium leading-tight">{row.main}</div>
+                  {row.secondary ? (
+                    <div className="text-xs text-muted-foreground leading-tight">{row.secondary}</div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>,
+            document.body,
+          )
+        : null}
       <div
         className={cn(
           "flex items-center gap-1 text-xs",
@@ -222,7 +368,14 @@ export function PlacesAutocomplete({
         )}
         {status === "error" && (
           <>
-            <AlertCircle className="h-3 w-3" /> {errorMessage}
+            <AlertCircle className="h-3 w-3" /> {errorMessage}{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => setRetryNonce((n) => n + 1)}
+            >
+              Reintentar
+            </button>
           </>
         )}
       </div>

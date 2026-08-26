@@ -144,16 +144,18 @@
 }
 
 /*
- * Google Places Autocomplete renders .pac-container on document.body.
- * Radix Dialog uses z-50 and blocks outside pointer events when modal=true,
- * so suggestions must stack above the overlay and receive clicks/touches.
+ * Places suggestions (custom dropdown, plus any leftover Google .pac-container)
+ * render on document.body. Radix Dialog uses z-50 and blocks outside pointer
+ * events when modal=true, so the list must stack above the overlay.
  */
-.pac-container {
+.pac-container,
+.washero-places-dropdown {
   z-index: 999999 !important;
   pointer-events: auto !important;
 }
 
-.pac-container .pac-item {
+.pac-container .pac-item,
+.washero-places-dropdown [role="option"] {
   pointer-events: auto !important;
   cursor: pointer;
   touch-action: manipulation;
