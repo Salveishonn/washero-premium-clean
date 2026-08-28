@@ -43,6 +43,7 @@ import {
   WHATSAPP_URL,
   WEEKDAYS_ES,
   MONTHS_ES,
+  clearWebsiteBookingIdempotencyKey,
   contactSchema,
   coverageZonesQueryOptions,
   dateFromIso,
@@ -56,6 +57,7 @@ import {
   isoFromDate,
   isGooglePlacesDropdownTarget,
   sortCoverageZoneNames,
+  takeWebsiteBookingIdempotencyKey,
   type FormState,
   type PricingItem,
   type PublicSlot,
@@ -626,6 +628,7 @@ function BookingForm({
       gclid: attribution?.gclid ?? null,
       gbraid: attribution?.gbraid ?? null,
       wbraid: attribution?.wbraid ?? null,
+      idempotency_key: takeWebsiteBookingIdempotencyKey(),
     };
 
     const { data, error } = await supabase.functions.invoke("create-website-booking", {
@@ -674,6 +677,7 @@ function BookingForm({
     }
 
     setSubmitting(false);
+    clearWebsiteBookingIdempotencyKey();
     await onSuccess(
       res?.checkout_url ?? null,
       {

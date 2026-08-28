@@ -61,6 +61,7 @@ type Payload = {
   gclid?: string | null;
   gbraid?: string | null;
   wbraid?: string | null;
+  idempotency_key?: string | null;
 };
 
 const PUBLIC_MIN_LEAD_MINUTES = 120;
@@ -183,6 +184,7 @@ Deno.serve(async (req) => {
       private_neighborhood_name: body.private_neighborhood_name ?? null,
       private_lot: body.private_lot ?? null,
       private_extra_details: body.private_extra_details ?? null,
+      idempotency_key: typeof body.idempotency_key === "string" ? body.idempotency_key.trim() || null : null,
       enforce_coverage: true, // strict coverage on website
       source: "website",
     });

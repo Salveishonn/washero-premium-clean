@@ -1,6 +1,7 @@
 // Public availability endpoint — returns active slots with remaining capacity.
 // Safe to call without auth; returns no PII.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { addDaysIso, todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,15 +48,13 @@ Deno.serve(async (req) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
   const url = new URL(req.url);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBuenosAiresIso();
   let from = url.searchParams.get("from") ?? today;
   let to = url.searchParams.get("to") ?? "";
 
   if (!isDate(from)) from = today;
   if (!to || !isDate(to)) {
-    // default 60 days out
-    const d = new Date(); d.setUTCDate(d.getUTCDate() + 60);
-    to = d.toISOString().slice(0, 10);
+    to = addDaysIso(today, 60);
   }
   if (from < today) from = today;
 

@@ -290,14 +290,6 @@ async function authorize(req: Request): Promise<"admin" | "cron" | null> {
     authHeader: req.headers.get("authorization"),
   });
   if (!identity) return null;
-
-  // Restrict to owner/admin (not operator)
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("role")
-    .eq("id", identity.adminId)
-    .maybeSingle();
-  if (!row || !["owner", "admin"].includes(row.role ?? "")) return null;
   return "admin";
 }
 

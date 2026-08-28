@@ -14,26 +14,32 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
+import { todayIso } from "@/lib/timezone";
 
 export const Route = createFileRoute("/admin/")({
   component: AdminDashboard,
 });
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 async function fetchMetrics() {
   const today = todayIso();
+  const activeStatuses = ["pending", "confirmed", "needs_review", "in_progress"] as const;
   const [todayCount, upcoming, needsReview, pendingPay, completed, requestsReview] = await Promise.all([
-    supabase.from("bookings").select("id", { count: "exact", head: true }).eq("scheduled_date", today),
+    supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("scheduled_date", today)
+      .neq("booking_status", "cancelled"),
     supabase
       .from("bookings")
       .select("id", { count: "exact", head: true })
       .gte("scheduled_date", today)
-      .in("booking_status", ["pending", "confirmed", "needs_review"]),
+      .in("booking_status", [...activeStatuses]),
     supabase.from("bookings").select("id", { count: "exact", head: true }).eq("booking_status", "needs_review"),
-    supabase.from("bookings").select("id", { count: "exact", head: true }).eq("payment_status", "pending"),
+    supabase
+      .from("bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("payment_status", "pending")
+      .neq("booking_status", "cancelled"),
     supabase.from("bookings").select("id", { count: "exact", head: true }).eq("booking_status", "completed"),
     supabase.from("booking_requests").select("id", { count: "exact", head: true }).eq("status", "needs_review"),
   ]);
@@ -91,26 +97,31 @@ function AdminDashboard() {
   const cards = [
     {
       label: "Reservas de hoy",
+      hint: "Sin canceladas",
       value: metrics.data?.today,
       icon: CalendarDays,
     },
     {
       label: "Próximas reservas",
+      hint: "Incluye en proceso",
       value: metrics.data?.upcoming,
       icon: CalendarClock,
     },
     {
       label: "Pendientes de revisión",
+      hint: "Reservas + pedidos",
       value: metrics.data?.needsReview,
       icon: AlertTriangle,
     },
     {
       label: "Pagos pendientes",
+      hint: "Sin canceladas",
       value: metrics.data?.pendingPayments,
       icon: Wallet,
     },
     {
       label: "Completadas",
+      hint: "Histórico total",
       value: metrics.data?.completed,
       icon: CheckCircle2,
     },
@@ -151,7 +162,10 @@ function AdminDashboard() {
               {metrics.isLoading ? (
                 <Skeleton className="h-7 w-12" />
               ) : (
-                <div className="text-2xl font-semibold">{c.value ?? 0}</div>
+                <>
+                  <div className="text-2xl font-semibold">{c.value ?? 0}</div>
+                  <p className="text-[11px] text-muted-foreground">{c.hint}</p>
+                </>
               )}
             </CardContent>
           </Card>

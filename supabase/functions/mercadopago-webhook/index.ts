@@ -127,7 +127,7 @@ Deno.serve(async (req) => {
 
   const { data: bookingBefore } = await admin
     .from("bookings")
-    .select("booking_status, payment_status")
+    .select("booking_status, payment_status, price")
     .eq("id", externalRef)
     .maybeSingle();
 
@@ -163,11 +163,44 @@ Deno.serve(async (req) => {
     });
   }
 
+  const expectedPrice = Number(bookingBefore?.price ?? 0) || 0;
+  const underpaid =
+    newPaymentStatus === "paid" && expectedPrice > 0 && amount + 1 < expectedPrice;
+
+  if (underpaid) {
+    console.warn("mercadopago-webhook: amount mismatch", {
+      booking_id: externalRef,
+      expected: expectedPrice,
+      paid: amount,
+    });
+    if (bookingBefore && bookingBefore.booking_status !== "cancelled") {
+      await admin
+        .from("bookings")
+        .update({
+          booking_status: "needs_review",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", externalRef);
+    }
+    return ok({
+      ok: true,
+      payment_status: newPaymentStatus,
+      booking_id: externalRef,
+      booking_status: bookingBefore?.booking_status ?? null,
+      amount_mismatch: true,
+      expected: expectedPrice,
+      paid: amount,
+    });
+  }
+
   const bookingUpdate: Record<string, unknown> = {
     payment_status: newPaymentStatus,
     updated_at: new Date().toISOString(),
   };
-  if (newPaymentStatus === "paid" && bookingBefore?.booking_status === "pending") {
+  if (
+    newPaymentStatus === "paid" &&
+    ["pending", "needs_review"].includes(bookingBefore?.booking_status ?? "")
+  ) {
     bookingUpdate.booking_status = "confirmed";
   }
 

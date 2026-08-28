@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import webpush from "npm:web-push@3.6.7";
 import { getOperatorGate } from "../_shared/operator-auth.ts";
+import { todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -246,7 +247,7 @@ Deno.serve(async (req) => {
   const reason = isAssignment ? "assignment" : (body.reason ?? "booking_assigned_today");
   const bypassTodayCheck = body.force === true || isAssignment;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBuenosAiresIso();
   if (!bypassTodayCheck && bookingRow.scheduled_date !== today) {
     return skippedResponse("not_today");
   }

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { todayIso } from "@/lib/timezone";
 
 export const SUBSCRIPTION_STATUSES = ["active", "paused", "cancelled"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
@@ -64,9 +65,7 @@ export function formatSubDate(iso: string) {
   });
 }
 
-export function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
+export { todayIso };
 
 /** Period end = start + 1 calendar month - 1 day */
 export function periodEndFromStart(startIso: string): string {

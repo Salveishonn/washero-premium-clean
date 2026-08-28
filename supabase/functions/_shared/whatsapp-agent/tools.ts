@@ -26,6 +26,7 @@ import {
   requestedIntervalFitsOperatingEnd,
 } from "../slot-capacity.ts";
 import { addDaysIso, isSlotTooSoonForPublic } from "../logistic-availability.ts";
+import { todayBuenosAiresIso } from "../timezone.ts";
 
 export type AgentToolContext = {
   conversationId: string;
@@ -419,7 +420,7 @@ const getAvailableDates: ToolDefinition = {
   execute: async (admin, args) => {
     const service_id = str(args.service_id);
     if (!service_id) return badArgs("Falta service_id.");
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayBuenosAiresIso();
     const date_from = isDateStr(args.date_from) ? (args.date_from as string) : today;
     const date_to = isDateStr(args.date_to) ? (args.date_to as string) : addDaysIso(date_from, 13);
 

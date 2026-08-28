@@ -1,6 +1,8 @@
 // Outbound WhatsApp via Botmaker API (server-side only).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { normalizePhone } from "./botmaker-booking.ts";
+import { normalizeArgentinaWhatsAppPhone } from "./phone.ts";
+
+export { normalizeArgentinaWhatsAppPhone };
 
 export type OutboundLogStatus = "pending" | "sent" | "failed" | "skipped";
 
@@ -116,20 +118,6 @@ export function sanitizeForLog(value: unknown, depth = 0): unknown {
     return out;
   }
   return String(value);
-}
-
-/** Argentina WhatsApp: prefer 549… digits without + */
-export function normalizeArgentinaWhatsAppPhone(raw: string | null | undefined): string | null {
-  const base = normalizePhone(raw);
-  if (!base) return null;
-  let digits = base.replace(/\D/g, "");
-  if (digits.startsWith("00")) digits = digits.slice(2);
-  if (digits.startsWith("0")) digits = digits.slice(1);
-  if (!digits.startsWith("54") && digits.length >= 8 && digits.length <= 11) {
-    digits = `54${digits}`;
-  }
-  if (digits.length < 10) return null;
-  return digits;
 }
 
 function extractProviderMessageId(payload: unknown): string | null {

@@ -1,6 +1,7 @@
 // Read-only operator booking detail (bookings + booking_units). No writes.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
+import { getOperatorGate, canStrictOperatorAccessBooking } from "../_shared/operator-auth.ts";
+import { todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,10 +31,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function todayBuenosAiresIso() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 }
 
 function num(value: unknown, fallback = 0): number {
@@ -101,17 +98,10 @@ function canOperatorReadBooking(
   booking: { assigned_operator_id: string | null; scheduled_date: string },
   gate: { role: string | null; staffId: string | null },
 ): boolean {
-  if (!isStrictOperatorRole(gate.role)) return true;
-  const today = todayBuenosAiresIso();
-  const allowedUnassignedToday =
-    ALLOW_UNASSIGNED_TODAY &&
-    !booking.assigned_operator_id &&
-    booking.scheduled_date === today;
-  const ownAssigned =
-    !!booking.assigned_operator_id &&
-    !!gate.staffId &&
-    booking.assigned_operator_id === gate.staffId;
-  return ownAssigned || allowedUnassignedToday;
+  return canStrictOperatorAccessBooking(booking, gate, {
+    allowUnassignedToday: ALLOW_UNASSIGNED_TODAY,
+    todayIso: todayBuenosAiresIso(),
+  });
 }
 
 Deno.serve(async (req) => {

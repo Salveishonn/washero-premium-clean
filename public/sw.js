@@ -1,4 +1,4 @@
-const CACHE = "washero-operator-v3";
+const CACHE = "washero-operator-v4";
 const SHELL = ["/operator", "/operator/hoy", "/operator/login"];
 
 self.addEventListener("install", (event) => {
@@ -56,7 +56,10 @@ function resolveOperatorUrl(rawUrl) {
   const fallback = new URL("/operator/hoy", self.location.origin).href;
   if (!rawUrl || typeof rawUrl !== "string") return fallback;
   try {
-    return new URL(rawUrl, self.location.origin).href;
+    const url = new URL(rawUrl, self.location.origin);
+    if (url.origin !== self.location.origin) return fallback;
+    if (!url.pathname.startsWith("/operator")) return fallback;
+    return url.href;
   } catch {
     return fallback;
   }
@@ -71,8 +74,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: "/icons/icon-192.svg",
-      badge: "/icons/icon-192.svg",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
       tag: payload.booking_id ? `booking-${payload.booking_id}` : "washero-operator",
       data: { url },
     }),

@@ -21,6 +21,7 @@ import {
   isSlotTooSoonForPublic,
   queryLogisticAvailabilityDays,
 } from "./logistic-availability.ts";
+import { todayBuenosAiresIso } from "./timezone.ts";
 import { loadActiveZones, matchZone } from "./coverage.ts";
 import {
   loadWasheroTransferBankDetails,
@@ -508,7 +509,7 @@ async function queryLogisticForArgs(
   if (lat == null || lng == null) return badArgs("Faltan address_lat y address_lng.");
   if (!service_id) return badArgs("Falta service_id.");
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBuenosAiresIso();
   const date_from = isDateStr(args.date_from) ? args.date_from : today;
   const date_to = isDateStr(args.date_to) ? args.date_to : addDaysIso(date_from, 13);
   const booking_units = buildBookingUnitsFromArgs(args);

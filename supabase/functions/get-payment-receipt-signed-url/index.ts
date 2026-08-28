@@ -1,6 +1,7 @@
 // Admin-only signed URL for private payment receipt files.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { PAYMENT_RECEIPTS_BUCKET } from "../_shared/payment-receipts.ts";
+import { requireActiveAdmin } from "../_shared/whatsapp-agent/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,27 +22,16 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function isActiveAdmin(authHeader: string | null): Promise<boolean> {
-  if (!authHeader) return false;
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data } = await userClient.auth.getUser();
-  if (!data.user) return false;
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("active, role")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-  return !!row?.active && ["owner", "admin"].includes(row.role ?? "");
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  if (!(await isActiveAdmin(req.headers.get("authorization")))) {
+  const identity = await requireActiveAdmin(admin, {
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    authHeader: req.headers.get("authorization"),
+  });
+  if (!identity) {
     return json({ ok: false, error: "forbidden" }, 403);
   }
 

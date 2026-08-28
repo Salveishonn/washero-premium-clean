@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { getBotmakerTemplateSendDiagnostics } from "../_shared/botmaker-outbound.ts";
+import { requireActiveAdmin } from "../_shared/whatsapp-agent/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,19 +16,6 @@ const WEBHOOK_SECRET = Deno.env.get("BOTMAKER_WEBHOOK_SECRET") ?? "";
 const BOTMAKER_API_TOKEN = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-
-async function isAdmin(authHeader: string | null) {
-  if (!authHeader) return false;
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data } = await userClient.auth.getUser();
-  if (!data.user) return false;
-  const { data: row } = await admin
-    .from("admin_users").select("active").eq("user_id", data.user.id).maybeSingle();
-  return !!row?.active;
-}
 
 function logStatus(row: { raw_payload?: unknown; created_at?: string; message_text?: string | null }) {
   const p = (row.raw_payload ?? {}) as Record<string, unknown>;
@@ -190,7 +178,12 @@ Deno.serve(async (req) => {
   }
   const authHeader = req.headers.get("authorization");
 
-  if (!(await isAdmin(authHeader))) {
+  const identity = await requireActiveAdmin(admin, {
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    authHeader,
+  });
+  if (!identity) {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

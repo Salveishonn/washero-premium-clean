@@ -18,6 +18,9 @@ import {
   type BookingForLogistics,
   type ScoredLogisticSlot,
 } from "./logistic-scoring.ts";
+import { addDaysIso, todayBuenosAiresIso } from "./timezone.ts";
+
+export { addDaysIso };
 
 export type LogisticAvailabilityDay = {
   date: string;
@@ -42,13 +45,6 @@ export type LogisticAvailabilityInput = {
 
 function isDate(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
-}
-
-export function addDaysIso(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
 }
 
 const PUBLIC_MIN_LEAD_MINUTES = 120;
@@ -103,7 +99,7 @@ export async function queryLogisticAvailabilityDays(
     return { ok: false, error: "missing_coordinates" };
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayBuenosAiresIso();
   let dateFrom = (body.date_from ?? today).trim();
   let dateTo = (body.date_to ?? addDaysIso(today, 13)).trim();
   if (!isDate(dateFrom)) dateFrom = today;

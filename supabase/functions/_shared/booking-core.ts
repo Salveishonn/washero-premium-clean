@@ -10,6 +10,8 @@ import {
   requestedIntervalFitsOperatingEnd,
   timeToMinutes,
 } from "./slot-capacity.ts";
+import { normalizeArgentinaWhatsAppPhone } from "./phone.ts";
+import { todayBuenosAiresIso } from "./timezone.ts";
 
 export const VEHICLE_TYPES = ["Auto", "SUV", "Pick-up", "Otro"] as const;
 export const PAYMENT_METHODS = ["Pagar después", "Transferencia", "MercadoPago"] as const;
@@ -779,7 +781,8 @@ export async function tryCreateBooking(
   input: CoreBookingInput,
 ): Promise<CoreResult> {
   const customer_name = (input.customer_name ?? "").trim();
-  const customer_phone = (input.customer_phone ?? "").trim();
+  const rawPhone = (input.customer_phone ?? "").trim();
+  const customer_phone = normalizeArgentinaWhatsAppPhone(rawPhone) ?? rawPhone.replace(/\D/g, "") || rawPhone;
   const customer_email = input.customer_email
     ? String(input.customer_email).trim().toLowerCase()
     : null;
@@ -888,7 +891,7 @@ export async function tryCreateBooking(
   if (!isTime(scheduled_time_raw))
     return { ok: false, reason: "invalid_time", message: "Horario inválido.", http_status: 400 };
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayBuenosAiresIso();
   if (scheduled_date < todayStr)
     return {
       ok: false,
@@ -1134,7 +1137,7 @@ export async function tryCreateBooking(
       })
       .eq("id", existing.id);
   } else {
-    const { data: ins } = await admin
+    const { data: ins, error: insErr } = await admin
       .from("customers")
       .insert({
         full_name: customer_name,
@@ -1146,7 +1149,17 @@ export async function tryCreateBooking(
       })
       .select("id")
       .maybeSingle();
-    customer_id = ins?.id ?? null;
+    if (insErr?.code === "23505") {
+      const { data: raced } = await admin
+        .from("customers")
+        .select("id")
+        .eq("phone", customer_phone)
+        .limit(1)
+        .maybeSingle();
+      customer_id = raced?.id ?? null;
+    } else {
+      customer_id = ins?.id ?? null;
+    }
   }
 
   const notes_parts: string[] = [];

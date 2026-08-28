@@ -90,71 +90,29 @@ function UnauthorizedScreen({
   const userId = session.user.id;
   const userEmail = session.user.email ?? "";
 
-  const upsertSql = `insert into public.admin_users (user_id, email, role, active)
-values (
-  '${userId}',
-  '${userEmail}',
-  'owner',
-  true
-)
-on conflict (email)
-do update set
-  user_id = excluded.user_id,
-  role = excluded.role,
-  active = true,
-  updated_at = now();`;
-
-  const updateSql = `update public.admin_users
-set
-  user_id = '${userId}',
-  email = '${userEmail}',
-  role = 'owner',
-  active = true,
-  updated_at = now()
-where email = '${userEmail}';`;
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <div className="w-full max-w-2xl rounded-lg border border-border/60 bg-card p-6 shadow-sm">
+      <div className="w-full max-w-lg rounded-lg border border-border/60 bg-card p-6 shadow-sm">
         <h1 className="text-xl font-semibold text-center">Acceso no autorizado</h1>
         <p className="mt-2 text-center text-sm text-muted-foreground">
-          Tu usuario existe en Supabase Auth, pero no tiene una fila activa en{" "}
-          <code>public.admin_users</code>.
+          Tu usuario existe, pero no tiene rol de administrador. Pedile a un owner que te habilite
+          en el panel.
         </p>
 
-        <div className="mt-6 rounded-md border border-border/60 bg-muted/40 p-4 text-xs">
-          <h2 className="mb-2 text-sm font-semibold">Debug</h2>
-          <ul className="space-y-1 font-mono">
-            <li>Auth session: <strong>yes</strong></li>
-            <li>Auth user id: <strong>{userId}</strong></li>
-            <li>Auth email: <strong>{userEmail}</strong></li>
-            <li>
-              RPC <code>get_my_admin_profile</code>:{" "}
-              <strong>{rpcError ? "error" : "empty"}</strong>
-            </li>
-            {rpcError && <li>Error: <strong>{rpcError}</strong></li>}
-          </ul>
-          <p className="mt-3 text-muted-foreground">
-            Esperado en <code>admin_users</code>: <code>user_id</code> = Auth user id,{" "}
-            <code>email</code> = Auth email, <code>active</code> = true.
-          </p>
-        </div>
-
-        <div className="mt-4 rounded-md border border-border/60 bg-muted/40 p-4">
-          <h2 className="text-sm font-semibold">Pegá esto en Supabase SQL Editor</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Si ya existe una fila con ese email, este UPSERT la corrige:
-          </p>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-[10px]">
-{upsertSql}
-          </pre>
-          <p className="mt-3 text-xs text-muted-foreground">
-            O bien, si preferís actualizar una fila existente:
-          </p>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded bg-background p-2 text-[10px]">
-{updateSql}
-          </pre>
-        </div>
+        {import.meta.env.DEV ? (
+          <div className="mt-6 rounded-md border border-border/60 bg-muted/40 p-4 text-xs">
+            <h2 className="mb-2 text-sm font-semibold">Debug (solo desarrollo)</h2>
+            <ul className="space-y-1 font-mono">
+              <li>Auth user id: <strong>{userId}</strong></li>
+              <li>Auth email: <strong>{userEmail}</strong></li>
+              <li>
+                RPC <code>get_my_admin_profile</code>:{" "}
+                <strong>{rpcError ? "error" : "empty"}</strong>
+              </li>
+              {rpcError && <li>Error: <strong>{rpcError}</strong></li>}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="mt-6 flex flex-col gap-2">
           <Button

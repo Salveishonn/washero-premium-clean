@@ -1,8 +1,31 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { todayIso } from "@/lib/timezone";
 
 export const WHATSAPP_NUMBER = "5491176247835";
 export const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
+
+const WEBSITE_IDEMPOTENCY_STORAGE_KEY = "washero_website_booking_idempotency";
+
+export function takeWebsiteBookingIdempotencyKey(): string {
+  try {
+    const existing = sessionStorage.getItem(WEBSITE_IDEMPOTENCY_STORAGE_KEY);
+    if (existing) return existing;
+    const next = crypto.randomUUID();
+    sessionStorage.setItem(WEBSITE_IDEMPOTENCY_STORAGE_KEY, next);
+    return next;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+export function clearWebsiteBookingIdempotencyKey() {
+  try {
+    sessionStorage.removeItem(WEBSITE_IDEMPOTENCY_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 export {
   ACTIVE_COVERAGE_ZONES_QUERY_KEY,
@@ -434,7 +457,7 @@ export async function fetchLogisticAvailability(input: {
   date_to?: string;
   debug?: boolean;
 }): Promise<LogisticDay[]> {
-  const today = isoFromDate(new Date());
+  const today = todayIso();
   const body: Record<string, unknown> = {
     address_lat: input.address_lat,
     address_lng: input.address_lng,
