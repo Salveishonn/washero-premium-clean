@@ -1,6 +1,6 @@
 // Payment receipt capture, storage, and booking matching (Transferencia).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { pick, normalizePhone } from "./botmaker-booking.ts";
+import { pick, normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";

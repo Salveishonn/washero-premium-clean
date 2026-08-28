@@ -2,6 +2,7 @@
 // Receives Mercado Pago notifications and updates payments + bookings.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { scheduleBookingConfirmedWhatsApp } from "../_shared/whatsapp-automation.ts";
+import { deliverInvoiceForBooking } from "../_shared/invoice-delivery.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -193,6 +194,9 @@ Deno.serve(async (req) => {
         scheduleBookingConfirmedWhatsApp(admin, externalRef);
         whatsapp_scheduled = true;
       }
+      void deliverInvoiceForBooking(admin, externalRef).catch((e) =>
+        console.error("mercadopago-webhook: invoice delivery", e),
+      );
     } catch (e) {
       console.error("mercadopago-webhook: paid booking side-effects exception", e);
     }

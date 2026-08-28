@@ -1,9 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
-  CalendarDays,
   CalendarClock,
-  ClipboardList,
   Users,
   Settings,
   MessageSquare,
@@ -39,8 +37,6 @@ type NavItem = { title: string; to: string; icon: LucideIcon };
 
 const primary: NavItem[] = [
   { title: "Dashboard", to: "/admin", icon: LayoutDashboard },
-  { title: "Reservas", to: "/admin/reservas", icon: ClipboardList },
-  { title: "Calendario", to: "/admin/calendario", icon: CalendarDays },
   { title: "Mensajes", to: "/admin/mensajes", icon: MessageSquare },
   { title: "Disponibilidad", to: "/admin/disponibilidad", icon: CalendarClock },
   { title: "Clientes", to: "/admin/clientes", icon: Users },

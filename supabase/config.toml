@@ -83,3 +83,9 @@ verify_jwt = false
 
 [functions.sync-finance-expenses]
 verify_jwt = false
+
+[functions.deliver-invoice]
+verify_jwt = false
+
+[functions.send-operator-reminder-push]
+verify_jwt = false

@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { tryCreateBooking } from "./booking-core.ts";
+import { pick, normalizePhone } from "./botmaker-phone.ts";
 
 export type BotmakerMessageRow = {
   id?: string;
@@ -10,36 +11,10 @@ export type BotmakerMessageRow = {
   raw_payload?: any;
 };
 
-export function pick(obj: any, paths: string[]): string | null {
-  for (const p of paths) {
-    const parts = p.split(".");
-    let cur: any = obj;
-    let ok = true;
-    for (const k of parts) {
-      if (cur == null) { ok = false; break; }
-      cur = cur[k];
-    }
-    if (ok && cur != null && cur !== "") {
-      if (typeof cur === "string" || typeof cur === "number") return String(cur);
-    }
-  }
-  return null;
-}
+export { pick, normalizePhone };
 
 export function extractConversationId(p: any): string | null {
   return pick(p, ["customerId","chatId","chat.id","conversationId","conversation.id","sessionId","userId","contactId"]);
-}
-export function normalizePhone(v: string | null | undefined): string | null {
-  if (!v) return null;
-  let s = String(v).trim();
-  // Strip whatsapp suffixes like @c.us, @s.whatsapp.net
-  s = s.replace(/@.*$/, "");
-  // Strip "whatsapp:" prefix
-  s = s.replace(/^whatsapp:/i, "");
-  // Keep + and digits
-  s = s.replace(/[^\d+]/g, "");
-  if (!s) return null;
-  return s;
 }
 export function extractPhone(p: any): string | null {
   const v = pick(p, ["customer_phone","realWhatsAppId","whatsappId","customer.phone","contact.phone","user.phone","from","sender","phone"]);

@@ -51,6 +51,7 @@ import {
   formatDayLong,
   formatDayShort,
   isoFromDate,
+  normalizedContactPhone,
   sortCoverageZoneNames,
   type FormState,
   type LogisticSlot,
@@ -701,7 +702,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
 
     const payload: Record<string, unknown> = {
       customer_name: form.customer_name.trim(),
-      customer_phone: form.customer_phone.trim(),
+      customer_phone: normalizedContactPhone(form.customer_phone),
       customer_email: form.customer_email.trim() || null,
       address: resolvedLocation.displayAddress,
       formatted_address: resolvedLocation.formatted_address,
@@ -790,7 +791,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       },
       paymentMethod: String(payload.payment_method),
       customerEmail: form.customer_email.trim() || null,
-      customerPhone: form.customer_phone.trim(),
+      customerPhone: normalizedContactPhone(form.customer_phone),
       checkoutUrl: res?.checkout_url ?? null,
       navigate: (opts) => navigate(opts),
     });
@@ -1444,8 +1445,14 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
                 <Label>Teléfono</Label>
                 <Input
                   inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="+54 9 11 1234-5678"
                   value={form.customer_phone}
                   onChange={(e) => update("customer_phone", e.target.value)}
+                  onBlur={() => {
+                    const next = normalizedContactPhone(form.customer_phone);
+                    if (next !== form.customer_phone) update("customer_phone", next);
+                  }}
                 />
                 {errors.customer_phone && (
                   <p className="text-xs text-destructive">{errors.customer_phone}</p>

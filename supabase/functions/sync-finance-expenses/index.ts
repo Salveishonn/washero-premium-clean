@@ -341,14 +341,33 @@ Deno.serve(async (req) => {
     const nowIso = new Date().toISOString();
     const payload = rows.map((r) => ({
       ...r,
+      source: "sheet" as const,
       synced_at: nowIso,
     }));
+
+    const allKeys = payload.map((r) => r.sheet_row_key).filter(Boolean);
+    const protectedKeys = new Set<string>();
+    const KEY_CHUNK = 200;
+    for (let i = 0; i < allKeys.length; i += KEY_CHUNK) {
+      const chunk = allKeys.slice(i, i + KEY_CHUNK);
+      const { data: blocked } = await admin
+        .from("finance_expenses")
+        .select("sheet_row_key, admin_override, deleted_at, source")
+        .in("sheet_row_key", chunk);
+      for (const row of blocked ?? []) {
+        const key = String(row.sheet_row_key ?? "");
+        if (!key) continue;
+        if (row.source === "admin" || row.admin_override || row.deleted_at) protectedKeys.add(key);
+      }
+    }
+
+    const filtered = payload.filter((r) => !protectedKeys.has(r.sheet_row_key));
 
     // Upsert in chunks to stay under payload limits
     const CHUNK = 200;
     let upserted = 0;
-    for (let i = 0; i < payload.length; i += CHUNK) {
-      const chunk = payload.slice(i, i + CHUNK);
+    for (let i = 0; i < filtered.length; i += CHUNK) {
+      const chunk = filtered.slice(i, i + CHUNK);
       const { error, count } = await admin.from("finance_expenses").upsert(chunk, {
         onConflict: "sheet_row_key",
         count: "exact",

@@ -13,10 +13,14 @@ import {
   MapPin,
   AlertTriangle,
   Eye,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
+import { parseArgentinaMobile } from "@/lib/phone";
+import { deleteCustomer } from "@/lib/admin-delete";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +35,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -102,9 +116,11 @@ function ClientesPage() {
   const [bookingsFilter, setBookingsFilter] = useState<string>("all");
   const [activityFilter, setActivityFilter] = useState<string>("all");
 
-  const [selected, setSelected] = useState<Customer | null>(null);
+  const [selected, setSelected] = useState<CustomerRow | null>(null);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<CustomerRow | null>(null);
+  const [deleteBookingsToo, setDeleteBookingsToo] = useState(false);
 
   // Booking dialog state (for "Ver reserva")
   const [bookingSelected, setBookingSelected] = useState<Booking | null>(null);
@@ -413,6 +429,17 @@ function ClientesPage() {
                         <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            setDeleteBookingsToo(false);
+                            setDeleting(c);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -479,6 +506,10 @@ function ClientesPage() {
               }}
               onMutate={refresh}
               onOpenBooking={(b) => setBookingSelected(b)}
+              onDelete={() => {
+                setDeleteBookingsToo(false);
+                setDeleting(selected);
+              }}
             />
           )}
         </DialogContent>
@@ -527,6 +558,23 @@ function ClientesPage() {
         setCreating={() => {}}
         onMutate={refresh}
       />
+
+      <DeleteCustomerDialog
+        customer={deleting}
+        deleteBookingsToo={deleteBookingsToo}
+        onDeleteBookingsTooChange={setDeleteBookingsToo}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleting(null);
+            setDeleteBookingsToo(false);
+          }
+        }}
+        onDeleted={() => {
+          setDeleting(null);
+          setSelected(null);
+          refresh();
+        }}
+      />
     </div>
   );
 }
@@ -540,11 +588,13 @@ function CustomerDetail({
   onEdit,
   onMutate,
   onOpenBooking,
+  onDelete,
 }: {
   customer: Customer;
   onEdit: () => void;
   onMutate: () => void;
   onOpenBooking: (b: Booking) => void;
+  onDelete: () => void;
 }) {
   const qc = useQueryClient();
 
@@ -638,6 +688,9 @@ function CustomerDetail({
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Pencil className="mr-2 h-4 w-4" /> Editar
+        </Button>
+        <Button variant="destructive" size="sm" onClick={onDelete}>
+          <Trash2 className="mr-2 h-4 w-4" /> Eliminar
         </Button>
         <Button
           variant="outline"
@@ -736,7 +789,8 @@ function CustomerForm({
   const save = async (e: FormEvent) => {
     e.preventDefault();
     if (!full_name.trim()) return toast.error("El nombre es obligatorio.");
-    if (!phone.trim()) return toast.error("El teléfono es obligatorio.");
+    const parsedPhone = parseArgentinaMobile(phone);
+    if (!parsedPhone.ok) return toast.error(parsedPhone.error);
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return toast.error("Email inválido.");
     }
@@ -745,18 +799,18 @@ function CustomerForm({
     try {
       const payload = {
         full_name: full_name.trim(),
-        phone: phone.trim(),
+        phone: parsedPhone.display,
         email: email.trim() || null,
         address: address.trim() || null,
         neighborhood: neighborhood.trim() || null,
         notes: notes.trim() || null,
       };
       if (mode === "create") {
-        // Prevent duplicates by phone
         const { data: existing } = await supabase
           .from("customers")
           .select("id")
-          .eq("phone", payload.phone)
+          .in("phone", parsedPhone.lookupVariants)
+          .limit(1)
           .maybeSingle();
         if (existing?.id) {
           toast.error("Ya existe un cliente con ese teléfono.");
@@ -795,7 +849,18 @@ function CustomerForm({
         </div>
         <div>
           <Label>Teléfono *</Label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} required maxLength={40} />
+          <Input
+            value={phone}
+            inputMode="tel"
+            placeholder="+54 9 11 1234-5678"
+            onChange={(e) => setPhone(e.target.value)}
+            onBlur={() => {
+              const parsed = parseArgentinaMobile(phone);
+              if (parsed.ok) setPhone(parsed.display);
+            }}
+            required
+            maxLength={40}
+          />
         </div>
         <div>
           <Label>Email</Label>
@@ -824,3 +889,95 @@ function CustomerForm({
     </form>
   );
 }
+
+function DeleteCustomerDialog({
+  customer,
+  deleteBookingsToo,
+  onDeleteBookingsTooChange,
+  onOpenChange,
+  onDeleted,
+}: {
+  customer: CustomerRow | null;
+  deleteBookingsToo: boolean;
+  onDeleteBookingsTooChange: (v: boolean) => void;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}) {
+  const remove = useMutation({
+    mutationFn: async () => {
+      if (!customer) throw new Error("Cliente inválido.");
+      let bookingIds: string[] = [];
+      if (deleteBookingsToo) {
+        const orFilter = customer.phone
+          ? `customer_id.eq.${customer.id},customer_phone.eq.${customer.phone}`
+          : `customer_id.eq.${customer.id}`;
+        const { data, error } = await supabase.from("bookings").select("id").or(orFilter);
+        if (error) throw error;
+        bookingIds = (data ?? []).map((b) => b.id);
+      }
+      const res = await deleteCustomer({
+        customerId: customer.id,
+        deleteBookingsToo,
+        bookingIds,
+      });
+      if (!res.ok) throw new Error(res.error);
+    },
+    onSuccess: () => {
+      toast.success("Cliente eliminado.");
+      onDeleted();
+    },
+    onError: (e: Error) => toast.error(e.message || "No pudimos eliminar el cliente."),
+  });
+
+  return (
+    <AlertDialog open={!!customer} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar cliente?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              {customer && (
+                <p>
+                  Se borra {customer.full_name}
+                  {customer.phone ? ` (${customer.phone})` : ""}.
+                  {customer.total_bookings > 0
+                    ? ` Tiene ${customer.total_bookings} reserva(s).`
+                    : ""}
+                </p>
+              )}
+              {customer && customer.total_bookings > 0 && (
+                <label className="flex items-start gap-2 text-foreground">
+                  <Checkbox
+                    checked={deleteBookingsToo}
+                    onCheckedChange={(v) => onDeleteBookingsTooChange(!!v)}
+                    className="mt-0.5"
+                  />
+                  <span>Borrar también las reservas de este cliente</span>
+                </label>
+              )}
+              {deleteBookingsToo && (
+                <p className="text-destructive">
+                  Las reservas se eliminan de forma permanente, incluidas facturas asociadas.
+                </p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={remove.isPending}>Volver</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={remove.isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              remove.mutate();
+            }}
+          >
+            {remove.isPending ? "Eliminando…" : "Eliminar"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+

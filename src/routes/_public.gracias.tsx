@@ -11,6 +11,7 @@ import {
   trackGoogleAdsEvent,
   trackPaymentSuccessConversion,
 } from "@/lib/google-ads";
+import { formatDayLong } from "@/components/reservar/shared";
 
 const WHATSAPP_URL = "https://wa.me/5491176247835";
 
@@ -45,17 +46,6 @@ function formatARS(value: number) {
     currency: "ARS",
     maximumFractionDigits: 0,
   }).format(value);
-}
-function formatDateLong(iso: string) {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return new Intl.DateTimeFormat("es-AR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: "America/Argentina/Buenos_Aires",
-  }).format(dt);
 }
 
 export const Route = createFileRoute("/_public/gracias")({
@@ -227,7 +217,7 @@ function GraciasPage() {
           {last && (
             <div className="mt-6 w-full rounded-lg border bg-muted/30 p-4 text-left text-sm">
               <Row label="Servicio" value={last.service_name} />
-              <Row label="Fecha" value={formatDateLong(last.scheduled_date)} />
+              <Row label="Fecha" value={formatDayLong(last.scheduled_date)} />
               <Row label="Horario" value={last.scheduled_time?.slice(0, 5)} />
               <Row label="Dirección" value={`${last.address}, ${last.neighborhood}`} />
               <Separator className="my-3" />

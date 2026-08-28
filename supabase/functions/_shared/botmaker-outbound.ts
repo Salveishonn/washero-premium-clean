@@ -1,6 +1,6 @@
 // Outbound WhatsApp via Botmaker API (server-side only).
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { normalizePhone } from "./botmaker-booking.ts";
+import { normalizePhone } from "./botmaker-phone.ts";
 
 export type OutboundLogStatus = "pending" | "sent" | "failed" | "skipped";
 

@@ -22,8 +22,16 @@ type Payload = {
   test?: boolean;
   booking_id?: string;
   operator_id?: string;
-  type?: "assignment" | "test_self";
-  reason?: "booking_assigned_today" | "booking_updated_today" | "new_message_today" | "assignment" | "test";
+  type?: "assignment" | "test_self" | "broadcast";
+  reason?:
+    | "booking_assigned_today"
+    | "booking_updated_today"
+    | "new_message_today"
+    | "assignment"
+    | "test"
+    | "new_booking"
+    | "reminder_1h"
+    | "digest_tomorrow";
   title?: string;
   body?: string;
   url?: string;
@@ -70,6 +78,9 @@ function fallbackTitle(reason: string | undefined) {
   if (reason === "test") return "Notificaciones activadas";
   if (reason === "new_message_today") return "Mensaje nuevo de cliente";
   if (reason === "booking_updated_today") return "Reserva actualizada";
+  if (reason === "new_booking") return "Nueva reserva";
+  if (reason === "reminder_1h") return "Lavado en 1 hora";
+  if (reason === "digest_tomorrow") return "Lavados de mañana";
   return "Nueva reserva para hoy";
 }
 
@@ -78,6 +89,9 @@ function fallbackBody(reason: string | undefined) {
   if (reason === "test") return "Washero puede enviarte avisos de nuevos lavados.";
   if (reason === "new_message_today") return "Tenés un nuevo mensaje operativo.";
   if (reason === "booking_updated_today") return "Cambió una reserva asignada para hoy.";
+  if (reason === "new_booking") return "Entró una reserva nueva.";
+  if (reason === "reminder_1h") return "Hay un lavado en aproximadamente una hora.";
+  if (reason === "digest_tomorrow") return "Revisá los lavados de mañana.";
   return "Te asignaron una reserva para hoy.";
 }
 
@@ -177,6 +191,54 @@ async function sendTestSelfPush(body: Payload, authHeader: string | null) {
   return json({ ok: true, sent, sent_count: sent, failed_count: failed, removed });
 }
 
+function isBroadcastPayload(body: Payload): boolean {
+  return (
+    body.type === "broadcast" ||
+    body.reason === "new_booking" ||
+    body.reason === "reminder_1h" ||
+    body.reason === "digest_tomorrow"
+  );
+}
+
+async function sendBroadcastPush(body: Payload) {
+  const { data: subs } = await admin
+    .from("notification_subscriptions")
+    .select("id,endpoint,p256dh,auth");
+  if (!subs || subs.length === 0) return skippedResponse("no_subscriptions");
+
+  const reason = body.reason ?? "new_booking";
+  let title = body.title ?? fallbackTitle(reason);
+  let notificationBody = body.body ?? fallbackBody(reason);
+  let url = body.url ?? "/operator/hoy";
+  let bookingId = String(body.booking_id ?? "").trim();
+
+  if (bookingId && !body.body) {
+    const { data: booking } = await admin
+      .from("bookings")
+      .select(
+        "id,scheduled_date,scheduled_time,customer_name,neighborhood,coverage_zone_name,private_neighborhood_name,formatted_address,address",
+      )
+      .eq("id", bookingId)
+      .maybeSingle();
+    if (booking) {
+      const row = booking as BookingRow;
+      notificationBody = formatAssignmentBody(row);
+      url = body.url ?? `/operator/reserva/${row.id}?from=push`;
+    }
+  }
+
+  const payload = JSON.stringify({
+    title,
+    body: notificationBody,
+    url,
+    booking_id: bookingId || null,
+    reason,
+  });
+
+  const { sent, failed, removed } = await sendToSubscriptions(subs as SubscriptionRow[], payload);
+  return json({ ok: true, sent, sent_count: sent, failed_count: failed, removed, broadcast: true });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, status: "method_not_allowed" }, 405);
@@ -228,6 +290,25 @@ Deno.serve(async (req) => {
       return json({ ok: false, status: "test_requires_user_auth" }, 400);
     }
     return sendTestSelfPush(body, authHeader);
+  }
+
+  if (isBroadcastPayload(body)) {
+    if (!internalAllowed) {
+      const gate = await getOperatorGate({
+        authHeader,
+        supabaseUrl: SUPABASE_URL,
+        anonKey: ANON_KEY,
+        admin,
+      });
+      if (!gate.ok || !["owner", "admin"].includes(gate.role ?? "")) {
+        return json({ ok: false, status: "forbidden" }, 403);
+      }
+    }
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      return json({ ok: false, status: "missing_vapid_config" }, 500);
+    }
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    return sendBroadcastPush(body);
   }
 
   const bookingId = String(body.booking_id ?? "").trim();

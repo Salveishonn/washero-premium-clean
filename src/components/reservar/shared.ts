@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
+import { parseArgentinaMobile } from "@/lib/phone";
 
 export const WHATSAPP_NUMBER = "5491176247835";
 export const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
@@ -203,13 +204,22 @@ export function buildBookingUnitsPayload(opts: {
   return units;
 }
 
+export function normalizedContactPhone(raw: string): string {
+  const parsed = parseArgentinaMobile(raw);
+  return parsed.ok ? parsed.display : raw.trim();
+}
+
 export const contactSchema = z.object({
   customer_name: z.string().trim().min(2, "Ingresá tu nombre"),
   customer_phone: z
     .string()
     .trim()
-    .min(6, "Teléfono inválido")
-    .regex(/^[+\d\s\-()]+$/, "Sólo números, espacios y +"),
+    .superRefine((val, ctx) => {
+      const parsed = parseArgentinaMobile(val);
+      if (!parsed.ok) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.error });
+      }
+    }),
   customer_email: z.union([z.literal(""), z.string().trim().email("Email inválido")]),
 });
 
@@ -255,7 +265,7 @@ export function isoFromDate(d: Date) {
 }
 
 export function dateFromIso(iso: string) {
-  const [y, m, d] = iso.split("-").map(Number);
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
   return new Date(y, m - 1, d);
 }
 

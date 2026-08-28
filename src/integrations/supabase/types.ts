@@ -1235,9 +1235,12 @@ export type Database = {
           amount: number;
           payment_method: string | null;
           notes: string | null;
-          sheet_row_key: string;
+          sheet_row_key: string | null;
           synced_at: string;
           created_at: string;
+          source: string;
+          admin_override: boolean;
+          deleted_at: string | null;
         };
         Insert: {
           id?: string;
@@ -1248,9 +1251,12 @@ export type Database = {
           amount: number;
           payment_method?: string | null;
           notes?: string | null;
-          sheet_row_key: string;
+          sheet_row_key?: string | null;
           synced_at?: string;
           created_at?: string;
+          source?: string;
+          admin_override?: boolean;
+          deleted_at?: string | null;
         };
         Update: {
           id?: string;
@@ -1261,9 +1267,12 @@ export type Database = {
           amount?: number;
           payment_method?: string | null;
           notes?: string | null;
-          sheet_row_key?: string;
+          sheet_row_key?: string | null;
           synced_at?: string;
           created_at?: string;
+          source?: string;
+          admin_override?: boolean;
+          deleted_at?: string | null;
         };
         Relationships: [];
       };

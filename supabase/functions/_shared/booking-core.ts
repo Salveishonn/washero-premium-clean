@@ -10,6 +10,8 @@ import {
   requestedIntervalFitsOperatingEnd,
   timeToMinutes,
 } from "./slot-capacity.ts";
+import { parseArgentinaMobile } from "./argentina-phone.ts";
+import { scheduleNewBookingOperatorPush } from "./operator-push.ts";
 
 export const VEHICLE_TYPES = ["Auto", "SUV", "Pick-up", "Otro"] as const;
 export const PAYMENT_METHODS = ["Pagar después", "Transferencia", "MercadoPago"] as const;
@@ -118,6 +120,7 @@ export type CoreResult =
       ok: false;
       reason:
         | "missing_fields"
+        | "invalid_phone"
         | "invalid_service"
         | "invalid_vehicle"
         | "invalid_payment"
@@ -841,6 +844,20 @@ export async function tryCreateBooking(
       ? String(primaryUnit.service_name).trim()
       : "";
 
+  const parsedPhone = parseArgentinaMobile(customer_phone);
+  if (customer_phone && !parsedPhone.ok) {
+    return {
+      ok: false,
+      reason: "invalid_phone",
+      message: parsedPhone.error,
+      http_status: 400,
+    };
+  }
+  const customer_phone_normalized = parsedPhone.ok ? parsedPhone.display : customer_phone;
+  const phoneLookupVariants = parsedPhone.ok
+    ? parsedPhone.lookupVariants
+    : [customer_phone].filter(Boolean);
+
   const missing: string[] = [];
   if (!customer_name) missing.push("customer_name");
   if (!customer_phone) missing.push("customer_phone");
@@ -1106,7 +1123,7 @@ export async function tryCreateBooking(
   const { data: existing } = await admin
     .from("customers")
     .select("id")
-    .eq("phone", customer_phone)
+    .in("phone", phoneLookupVariants.length ? phoneLookupVariants : [customer_phone_normalized])
     .limit(1)
     .maybeSingle();
   let customer_id: string | null = null;
@@ -1126,6 +1143,7 @@ export async function tryCreateBooking(
       .from("customers")
       .update({
         full_name: customer_name,
+        phone: customer_phone_normalized,
         email: customer_email,
         address,
         neighborhood,
@@ -1138,7 +1156,7 @@ export async function tryCreateBooking(
       .from("customers")
       .insert({
         full_name: customer_name,
-        phone: customer_phone,
+        phone: customer_phone_normalized,
         email: customer_email,
         address,
         neighborhood,
@@ -1225,7 +1243,7 @@ export async function tryCreateBooking(
   const bookingPayload = {
     customer_id,
     customer_name,
-    customer_phone,
+    customer_phone: customer_phone_normalized,
     customer_email,
     address,
     neighborhood,
@@ -1349,6 +1367,10 @@ export async function tryCreateBooking(
     price: result.price,
   };
 
+  if (!input.is_test) {
+    scheduleNewBookingOperatorPush(created.id);
+  }
+
   return {
     ok: true,
     booking: {
@@ -1364,7 +1386,7 @@ export async function tryCreateBooking(
       vehicle_type: primary.vehicle_type,
       payment_method,
       customer_name,
-      customer_phone,
+      customer_phone: customer_phone_normalized,
       customer_email,
       customer_id,
     },

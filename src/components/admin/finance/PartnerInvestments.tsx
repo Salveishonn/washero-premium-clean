@@ -13,21 +13,23 @@ import {
   type PartnerInvestmentSummary,
 } from "@/lib/finance/expenses";
 import { fmtCurrency, fmtDate } from "@/lib/finance/utils";
+import { AddExpenseButton, ExpenseActions, ExpenseSourceBadge } from "./ExpenseCrud";
 
 type Props = {
   periodSummary: PartnerInvestmentSummary;
   historicalSummary: PartnerInvestmentSummary;
   rows: FinanceExpense[];
+  onMutate: () => void;
 };
 
-export function PartnerInvestments({ periodSummary, historicalSummary, rows }: Props) {
+export function PartnerInvestments({ periodSummary, historicalSummary, rows, onMutate }: Props) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Inversiones socios</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Gastos que pagaron Salva o Moru (50/50). No afectan ingresos ni el reparto neto de la
-          empresa.
+          Gastos que pagaron Salva o Moru (50/50). Cargalos acá o en el Form. No afectan el
+          reparto neto de la empresa.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -46,9 +48,13 @@ export function PartnerInvestments({ periodSummary, historicalSummary, rows }: P
           </p>
         </div>
 
+        <div className="flex justify-end">
+          <AddExpenseButton defaultPayer="salva" onMutate={onMutate} label="Agregar inversión" />
+        </div>
+
         {rows.length === 0 ? (
           <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-            No hay inversiones de socios en este período. Cargalas en el Google Form y sincronizá.
+            No hay inversiones de socios en este período. Cargalas acá o en el Google Form.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -61,6 +67,8 @@ export function PartnerInvestments({ periodSummary, historicalSummary, rows }: P
                   <TableHead>Categoría</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
                   <TableHead>Medio</TableHead>
+                  <TableHead>Origen</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -78,6 +86,12 @@ export function PartnerInvestments({ periodSummary, historicalSummary, rows }: P
                       {fmtCurrency(Number(r.amount))}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{r.payment_method || "—"}</TableCell>
+                    <TableCell>
+                      <ExpenseSourceBadge row={r} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <ExpenseActions row={r} defaultPayer="salva" onMutate={onMutate} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
