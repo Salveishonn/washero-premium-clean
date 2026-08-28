@@ -38,6 +38,7 @@ import {
   WHATSAPP_URL,
   buildBookingUnitsPayload,
   buildPrivateNeighborhoodDisplayAddress,
+  clearWebsiteBookingIdempotencyKey,
   computeUnitPricing,
   contactSchema,
   coverageZonesQueryOptions,
@@ -52,6 +53,7 @@ import {
   formatDayShort,
   isoFromDate,
   sortCoverageZoneNames,
+  takeWebsiteBookingIdempotencyKey,
   type FormState,
   type LogisticSlot,
   type PrivateNeighborhood,
@@ -730,6 +732,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       gclid: attribution?.gclid ?? null,
       gbraid: attribution?.gbraid ?? null,
       wbraid: attribution?.wbraid ?? null,
+      idempotency_key: takeWebsiteBookingIdempotencyKey(),
     };
 
     if (form.address_mode === "private_neighborhood" && selectedPrivateNeighborhood) {
@@ -782,6 +785,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
     }
 
     setSubmitting(false);
+    clearWebsiteBookingIdempotencyKey();
     await completeWebsiteBookingSuccess({
       bookingId,
       summary: {

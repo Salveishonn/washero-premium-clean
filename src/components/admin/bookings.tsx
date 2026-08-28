@@ -70,6 +70,8 @@ import { fetchInvoiceForBooking, fmtInvoiceDate, generateInvoiceForBooking } fro
 import { OperatorAssignmentFields } from "@/components/admin/OperatorAssignmentFields";
 import { BookingWhatsAppActions } from "@/components/admin/BookingWhatsAppActions";
 import { sendBotmakerMessage } from "@/lib/botmaker-notifications";
+import { todayIso as todayBuenosAiresIso } from "@/lib/timezone";
+import { adminTransitionError, canAdminTransitionStatus } from "@/lib/booking-status";
 
 // ===========================================================================
 // Types
@@ -133,7 +135,7 @@ export type AvailabilitySlot = {
 // Helpers
 // ===========================================================================
 
-export const todayIso = () => new Date().toISOString().slice(0, 10);
+export const todayIso = () => todayBuenosAiresIso();
 
 export function fmtDate(d: string) {
   if (!d) return "—";
@@ -237,6 +239,15 @@ export function useQuickBookingStatus(opts?: { onSuccess?: () => void }) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { id: string; booking_status: string }) => {
+      const { data: current, error: fetchErr } = await supabase
+        .from("bookings")
+        .select("booking_status")
+        .eq("id", input.id)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      const from = current?.booking_status ?? "";
+      const err = adminTransitionError(from, input.booking_status);
+      if (err) throw new Error(err);
       const { error } = await supabase
         .from("bookings")
         .update({ booking_status: input.booking_status })
@@ -252,7 +263,7 @@ export function useQuickBookingStatus(opts?: { onSuccess?: () => void }) {
       qc.invalidateQueries({ queryKey: ["admin", "calendar"] });
       opts?.onSuccess?.();
     },
-    onError: () => toast.error("No pudimos actualizar la reserva."),
+    onError: (e: Error) => toast.error(e.message || "No pudimos actualizar la reserva."),
   });
 }
 
@@ -319,6 +330,7 @@ export function BookingDetail({
   const latestPayment = useLatestPayment(booking.id);
   const invoiceQuery = useInvoiceForBooking(booking.id);
   const [pendingManual, setPendingManual] = useState<string | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
 
   const invalidatePaymentQueries = () => {
@@ -645,7 +657,7 @@ export function BookingDetail({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy}
+            disabled={busy || !canAdminTransitionStatus(booking.booking_status, "confirmed")}
             onClick={() => onQuickStatus("confirmed")}
           >
             <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar
@@ -653,7 +665,7 @@ export function BookingDetail({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy}
+            disabled={busy || !canAdminTransitionStatus(booking.booking_status, "in_progress")}
             onClick={() => onQuickStatus("in_progress")}
           >
             <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
@@ -661,16 +673,16 @@ export function BookingDetail({
           <Button
             size="sm"
             variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("completed")}
+            disabled={busy || !canAdminTransitionStatus(booking.booking_status, "completed")}
+            onClick={() => setPendingStatus("completed")}
           >
             <CheckCircle2 className="mr-1 h-4 w-4" /> Completar
           </Button>
           <Button
             size="sm"
             variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("needs_review")}
+            disabled={busy || !canAdminTransitionStatus(booking.booking_status, "needs_review")}
+            onClick={() => setPendingStatus("needs_review")}
           >
             <Flag className="mr-1 h-4 w-4" /> Revisar
           </Button>
@@ -709,6 +721,38 @@ export function BookingDetail({
                 if (pendingManual) {
                   manualPay.mutate(pendingManual);
                   setPendingManual(null);
+                }
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingStatus} onOpenChange={(o) => !o && setPendingStatus(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingStatus === "completed" ? "¿Completar este lavado?" : "¿Marcar para revisión?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              El estado pasará de{" "}
+              <strong>{bookingStatusLabels[booking.booking_status] ?? booking.booking_status}</strong>{" "}
+              a{" "}
+              <strong>
+                {pendingStatus ? (bookingStatusLabels[pendingStatus] ?? pendingStatus) : ""}
+              </strong>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingStatus) {
+                  onQuickStatus(pendingStatus);
+                  setPendingStatus(null);
                 }
               }}
             >
@@ -764,6 +808,9 @@ export function BookingEditForm({
 
   const save = useMutation({
     mutationFn: async () => {
+      const statusErr = adminTransitionError(booking.booking_status, form.booking_status);
+      if (statusErr) throw new Error(statusErr);
+      const becomingPaid = booking.payment_status !== "paid" && form.payment_status === "paid";
       const { error } = await supabase
         .from("bookings")
         .update({
@@ -787,12 +834,27 @@ export function BookingEditForm({
         .eq("id", form.id);
       if (error) throw error;
       await upsertCustomerByPhone(form);
+      if (becomingPaid) {
+        const { error: payErr } = await supabase.from("payments").insert({
+          booking_id: form.id,
+          provider: "manual",
+          amount: form.price,
+          status: "paid",
+          raw_payload: {
+            reason: "admin_edit_marked_paid",
+            previous_payment_status: booking.payment_status,
+          },
+        });
+        if (payErr) throw payErr;
+        const inv = await generateInvoiceForBooking(form.id);
+        if (!inv.ok) throw new Error(inv.error);
+      }
     },
     onSuccess: () => {
       toast.success("Reserva actualizada.");
       onSaved();
     },
-    onError: () => toast.error("No pudimos guardar los cambios."),
+    onError: (e: Error) => toast.error(e.message || "No pudimos guardar los cambios."),
   });
 
   const submit = (e: FormEvent) => {

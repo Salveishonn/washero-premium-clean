@@ -1,5 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
 import { bookingStatusLabels, paymentStatusLabels } from "@/lib/booking-badges";
+import {
+  todayBuenosAiresIso,
+  todayIso,
+  addDaysIso as addCalendarDays,
+} from "@/lib/timezone";
+
+export { todayBuenosAiresIso, todayIso };
 
 export type OperatorProfile = {
   staff_id: string;
@@ -299,25 +306,9 @@ export async function fetchMyOperatorProfile(): Promise<{
   return { profile: row as OperatorProfile, error: null };
 }
 
-export function todayBuenosAiresIso() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
-}
-
-/** Operator-facing calendar date in America/Argentina/Buenos_Aires (YYYY-MM-DD). */
-export function todayIso() {
-  return todayBuenosAiresIso();
-}
-
 /** Add calendar days to a YYYY-MM-DD base (defaults to operator today in Buenos Aires). */
 export function addDaysIso(days: number, fromIso?: string) {
-  const base = fromIso ?? todayBuenosAiresIso();
-  const [y, m, d] = base.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + days);
-  const yy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
+  return addCalendarDays(fromIso ?? todayBuenosAiresIso(), days);
 }
 
 export function formatOpTime(time: string) {

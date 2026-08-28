@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Search } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Search, Calendar as CalIcon } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -41,11 +41,9 @@ import {
   type Booking,
   fmtDate,
   fmtTime,
-  todayIso,
   BookingDialogs,
 } from "@/components/admin/bookings";
-import { useQueryClient } from "@tanstack/react-query";
-import { Calendar as CalIcon } from "lucide-react";
+import { todayIso, addDaysIso as addCalendarDays } from "@/lib/timezone";
 
 const reservasSearchSchema = z.object({
   booking: z.string().uuid().optional(),
@@ -57,12 +55,6 @@ export const Route = createFileRoute("/admin/reservas")({
 });
 
 type DateFilter = "all" | "today" | "tomorrow" | "week" | "future" | "past";
-
-const addDaysIso = (d: number) => {
-  const dt = new Date();
-  dt.setDate(dt.getDate() + d);
-  return dt.toISOString().slice(0, 10);
-};
 
 function AdminReservas() {
   const qc = useQueryClient();
@@ -84,9 +76,9 @@ function AdminReservas() {
 
       const today = todayIso();
       if (dateFilter === "today") q = q.eq("scheduled_date", today);
-      else if (dateFilter === "tomorrow") q = q.eq("scheduled_date", addDaysIso(1));
+      else if (dateFilter === "tomorrow") q = q.eq("scheduled_date", addCalendarDays(today, 1));
       else if (dateFilter === "week")
-        q = q.gte("scheduled_date", today).lte("scheduled_date", addDaysIso(7));
+        q = q.gte("scheduled_date", today).lte("scheduled_date", addCalendarDays(today, 7));
       else if (dateFilter === "future") q = q.gte("scheduled_date", today);
       else if (dateFilter === "past") q = q.lt("scheduled_date", today);
 
@@ -107,6 +99,20 @@ function AdminReservas() {
     },
   });
 
+  const deepLinkQuery = useQuery({
+    queryKey: ["admin", "booking", urlSearch.booking],
+    enabled: !!urlSearch.booking,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("*")
+        .eq("id", urlSearch.booking!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as Booking | null;
+    },
+  });
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return bookingsQuery.data ?? [];
@@ -120,8 +126,12 @@ function AdminReservas() {
   useEffect(() => {
     if (!urlSearch.booking) return;
     const found = (bookingsQuery.data ?? []).find((b) => b.id === urlSearch.booking);
-    if (found) setSelected(found);
-  }, [urlSearch.booking, bookingsQuery.data]);
+    if (found) {
+      setSelected(found);
+      return;
+    }
+    if (deepLinkQuery.data) setSelected(deepLinkQuery.data);
+  }, [urlSearch.booking, bookingsQuery.data, deepLinkQuery.data]);
 
   const onMutate = () => {
     qc.invalidateQueries({ queryKey: ["admin", "bookings"] });

@@ -7,7 +7,8 @@ import {
   parseOperatorWhatsappAction,
 } from "../_shared/botmaker-operator-templates.ts";
 import { sendBotmakerTemplateMessage } from "../_shared/botmaker-outbound.ts";
-import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
+import { getOperatorGate, canStrictOperatorAccessBooking } from "../_shared/operator-auth.ts";
+import { todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,23 +82,19 @@ Deno.serve(async (req) => {
     return json({ ok: false, status: "booking_not_found", message: "Reserva no encontrada." }, 404);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  if (isStrictOperatorRole(gate.role)) {
-    const allowedUnassignedToday =
-      ALLOW_UNASSIGNED_TODAY &&
-      !booking.assigned_operator_id &&
-      booking.scheduled_date === today;
-    const ownAssigned = booking.assigned_operator_id && booking.assigned_operator_id === gate.staffId;
-    if (!ownAssigned && !allowedUnassignedToday) {
-      return json(
-        {
-          ok: false,
-          status: "booking_forbidden",
-          message: "No podés enviar mensajes para esta reserva.",
-        },
-        403,
-      );
-    }
+  const today = todayBuenosAiresIso();
+  if (!canStrictOperatorAccessBooking(booking, gate, {
+    allowUnassignedToday: ALLOW_UNASSIGNED_TODAY,
+    todayIso: today,
+  })) {
+    return json(
+      {
+        ok: false,
+        status: "booking_forbidden",
+        message: "No podés enviar mensajes para esta reserva.",
+      },
+      403,
+    );
   }
 
   const templateDef = getOperatorTemplate(actionKey);

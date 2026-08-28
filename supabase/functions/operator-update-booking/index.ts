@@ -1,6 +1,8 @@
 // Operator-safe booking status updates (no price/customer/date changes).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { schedulePaymentConfirmedWhatsApp } from "../_shared/whatsapp-automation.ts";
+import { canStrictOperatorAccessBooking, getOperatorGate } from "../_shared/operator-auth.ts";
+import { todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +13,8 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
+const ALLOW_UNASSIGNED_TODAY =
+  String(Deno.env.get("OPERATOR_ALLOW_UNASSIGNED_TODAY") ?? "false").toLowerCase() === "true";
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
@@ -30,34 +34,16 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function isActiveOperator(authHeader: string | null): Promise<{
-  ok: boolean;
-  staffId: string | null;
-  role: string | null;
-}> {
-  if (!authHeader) return { ok: false, staffId: null, role: null };
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data: userData } = await userClient.auth.getUser();
-  if (!userData.user) return { ok: false, staffId: null, role: null };
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("id, role, active")
-    .eq("user_id", userData.user.id)
-    .maybeSingle();
-  if (!row?.active || !["owner", "admin", "operator"].includes(row.role)) {
-    return { ok: false, staffId: null, role: null };
-  }
-  return { ok: true, staffId: row.id, role: row.role };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, status: "method_not_allowed" }, 405);
 
-  const gate = await isActiveOperator(req.headers.get("authorization"));
+  const gate = await getOperatorGate({
+    authHeader: req.headers.get("authorization"),
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    admin,
+  });
   if (!gate.ok) {
     return json({ ok: false, status: "forbidden", message: "No tenés acceso operativo." }, 403);
   }
@@ -78,7 +64,7 @@ Deno.serve(async (req) => {
   const { data: booking, error: fetchErr } = await admin
     .from("bookings")
     .select(
-      "id, booking_status, payment_status, payment_method, price, operator_notes, assigned_operator_id",
+      "id, booking_status, payment_status, payment_method, price, operator_notes, assigned_operator_id, scheduled_date",
     )
     .eq("id", bookingId)
     .maybeSingle();
@@ -88,15 +74,21 @@ Deno.serve(async (req) => {
   }
 
   if (
-    booking.assigned_operator_id &&
-    gate.staffId &&
-    booking.assigned_operator_id !== gate.staffId &&
-    gate.role === "operator"
+    !canStrictOperatorAccessBooking(
+      {
+        assigned_operator_id: booking.assigned_operator_id,
+        scheduled_date: booking.scheduled_date,
+      },
+      gate,
+      { allowUnassignedToday: ALLOW_UNASSIGNED_TODAY, todayIso: todayBuenosAiresIso() },
+    )
   ) {
     return json({
       ok: false,
       status: "not_assigned",
-      message: "Esta reserva está asignada a otro operador.",
+      message: booking.assigned_operator_id
+        ? "Esta reserva está asignada a otro operador."
+        : "Esta reserva no está asignada. Pedí que te la asignen desde el panel.",
     }, 403);
   }
 

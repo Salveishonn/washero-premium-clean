@@ -5,6 +5,8 @@ import {
   buildBookingReminderMessage,
   type BookingNotifyRow,
 } from "../_shared/whatsapp-automation.ts";
+import { requireActiveAdmin } from "../_shared/whatsapp-agent/admin-auth.ts";
+import { addDaysIso, todayBuenosAiresIso } from "../_shared/timezone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,22 +20,6 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUB
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 
-async function isActiveAdmin(authHeader: string | null): Promise<boolean> {
-  if (!authHeader) return false;
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data } = await userClient.auth.getUser();
-  if (!data.user) return false;
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("active, role")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-  return !!row?.active && ["owner", "admin"].includes(row.role ?? "");
-}
-
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -42,30 +28,24 @@ function json(body: unknown, status = 200) {
 }
 
 function tomorrowIsoBuenosAires(): string {
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const today = fmt.format(now);
-  const [y, m, d] = today.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + 1);
-  return dt.toISOString().slice(0, 10);
+  return addDaysIso(todayBuenosAiresIso(), 1);
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  if (!(await isActiveAdmin(req.headers.get("authorization")))) {
+  const identity = await requireActiveAdmin(admin, {
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    authHeader: req.headers.get("authorization"),
+  });
+  if (!identity) {
     return json({ ok: false, error: "forbidden" }, 403);
   }
 
   const targetDate = tomorrowIsoBuenosAires();
-  const sinceIso = `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`;
+  const sinceIso = `${todayBuenosAiresIso()}T00:00:00.000-03:00`;
 
   const { data: bookings, error } = await admin
     .from("bookings")

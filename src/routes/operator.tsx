@@ -19,20 +19,37 @@ export const Route = createFileRoute("/operator")({
     ],
     links: [
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/icons/icon-192.svg" },
+      { rel: "apple-touch-icon", href: "/icons/icon-192.png" },
     ],
   }),
   component: OperatorLayout,
 });
 
-function useOperatorPwaRegistration() {
+function useOperatorPwa() {
   useEffect(() => {
     registerOperatorServiceWorker();
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; url?: string } | null;
+      if (!data || data.type !== "washero-open-url" || typeof data.url !== "string") return;
+      try {
+        const url = new URL(data.url, window.location.origin);
+        if (url.origin !== window.location.origin) return;
+        if (!url.pathname.startsWith("/operator")) return;
+        window.location.assign(url.href);
+      } catch {
+        // ignore malformed SW payloads
+      }
+    };
+
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, []);
 }
 
 function OperatorLayout() {
-  useOperatorPwaRegistration();
+  useOperatorPwa();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   if (pathname === "/operator/login") return <Outlet />;
   return <OperatorGuarded />;

@@ -26,6 +26,7 @@ export const BOOKING_SOURCES = [
   "manual",
   "subscription",
   "admin_subscription",
+  "whatsapp_agent",
 ] as const;
 export type BookingSource = (typeof BOOKING_SOURCES)[number];
 
@@ -53,6 +54,7 @@ export const bookingSourceLabels: Record<string, string> = {
   manual: "Manual",
   subscription: "Suscripción",
   admin_subscription: "Suscripción",
+  whatsapp_agent: "WhatsApp",
 };
 
 const statusColor: Record<string, string> = {

@@ -2,14 +2,11 @@
 //
 // Only "(1) missing JWT" is testable without a live Supabase auth session — it's the one case
 // that returns before any network call at all. Scenarios (2) invalid JWT, (3) authenticated
-// non-admin, (4) inactive admin, and (5) active admin all require a real Supabase project with
-// real fixtures (an actual non-admin user account, an actual inactive admin_users row, an actual
-// active admin with a mintable session) that don't exist in this environment — see
-// manual-retry.integration.test.ts's header for the same limitation applied to the retry flow as
-// a whole. Those four are NOT silently claimed to pass; they are simply not run here.
+// non-admin, (4) inactive admin, (5) active operator, and (6) active owner|admin all require a
+// real Supabase project with real fixtures. Those are NOT silently claimed to pass.
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { requireActiveAdmin } from "./admin-auth.ts";
+import { isOwnerOrAdminRole, requireActiveAdmin } from "./admin-auth.ts";
 
 const unreachableAdmin = new Proxy(
   {},
@@ -39,4 +36,13 @@ Deno.test("(1b) empty-string JWT is also rejected immediately", async () => {
     authHeader: "",
   });
   assertEquals(result, null);
+});
+
+Deno.test("owner|admin roles pass the gate; operator and unknown roles do not", () => {
+  assertEquals(isOwnerOrAdminRole("owner"), true);
+  assertEquals(isOwnerOrAdminRole("admin"), true);
+  assertEquals(isOwnerOrAdminRole("operator"), false);
+  assertEquals(isOwnerOrAdminRole("staff"), false);
+  assertEquals(isOwnerOrAdminRole(null), false);
+  assertEquals(isOwnerOrAdminRole(""), false);
 });

@@ -7,6 +7,7 @@ import {
   buildPaymentConfirmedMessage,
   fetchBookingForNotify,
 } from "../_shared/whatsapp-automation.ts";
+import { requireActiveAdmin } from "../_shared/whatsapp-agent/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,22 +20,6 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
-
-async function isActiveAdmin(authHeader: string | null): Promise<boolean> {
-  if (!authHeader) return false;
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data } = await userClient.auth.getUser();
-  if (!data.user) return false;
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("active, role")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-  return !!row?.active && ["owner", "admin"].includes(row.role ?? "");
-}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -56,7 +41,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  if (!(await isActiveAdmin(req.headers.get("authorization")))) {
+  const identity = await requireActiveAdmin(admin, {
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    authHeader: req.headers.get("authorization"),
+  });
+  if (!identity) {
     return json({ ok: false, error: "forbidden" }, 403);
   }
 

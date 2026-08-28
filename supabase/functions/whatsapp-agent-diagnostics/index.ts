@@ -26,6 +26,7 @@ import { enqueueJob } from "../_shared/whatsapp-agent/job-queue.ts";
 import { runJobProcessingLoop } from "../_shared/whatsapp-agent/job-processor.ts";
 import { getAgentMode, isPhoneEligibleForAgent } from "../_shared/whatsapp-agent/agent-mode.ts";
 import { normalizeArgentinaWhatsAppPhone } from "../_shared/botmaker-outbound.ts";
+import { requireActiveAdmin } from "../_shared/whatsapp-agent/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,23 +49,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-async function requireAdmin(authHeader: string | null): Promise<{ userId: string } | null> {
-  if (!authHeader) return null;
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false },
-  });
-  const { data } = await userClient.auth.getUser();
-  if (!data.user) return null;
-  const { data: row } = await admin
-    .from("admin_users")
-    .select("active")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-  if (!row?.active) return null;
-  return { userId: data.user.id };
 }
 
 async function checkRateLimit(adminUserId: string): Promise<boolean> {
@@ -204,7 +188,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  const admin_user = await requireAdmin(req.headers.get("Authorization"));
+  const admin_user = await requireActiveAdmin(admin, {
+    supabaseUrl: SUPABASE_URL,
+    anonKey: ANON_KEY,
+    authHeader: req.headers.get("Authorization"),
+  });
   if (!admin_user) return json({ ok: false, error: "Unauthorized" }, 401);
 
   if (!(await checkRateLimit(admin_user.userId))) {

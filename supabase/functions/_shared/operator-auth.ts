@@ -35,3 +35,21 @@ export async function getOperatorGate(input: {
 export function isStrictOperatorRole(role: string | null) {
   return role === "operator";
 }
+
+/** Strict operators may only mutate assigned bookings, unless unassigned-today is enabled. */
+export function canStrictOperatorAccessBooking(
+  booking: { assigned_operator_id: string | null; scheduled_date: string },
+  gate: { role: string | null; staffId: string | null },
+  opts: { allowUnassignedToday: boolean; todayIso: string },
+): boolean {
+  if (!isStrictOperatorRole(gate.role)) return true;
+  const allowedUnassignedToday =
+    opts.allowUnassignedToday &&
+    !booking.assigned_operator_id &&
+    booking.scheduled_date === opts.todayIso;
+  const ownAssigned =
+    !!booking.assigned_operator_id &&
+    !!gate.staffId &&
+    booking.assigned_operator_id === gate.staffId;
+  return ownAssigned || allowedUnassignedToday;
+}

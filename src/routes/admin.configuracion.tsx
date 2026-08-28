@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
+import { createClient } from "@supabase/supabase-js";
+import { addDaysIso, todayIso } from "@/lib/timezone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -1457,31 +1459,44 @@ function HealthTab() {
   async function runInsertTests() {
     setRunning(true);
     try {
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const tomorrow = addDaysIso(todayIso(), 1);
       const tag = `HEALTHCHECK_DELETE_ME_${Date.now()}`;
       const base = {
         customer_name: "HEALTHCHECK",
         customer_phone: "+5491100000000",
         address: "Test 1",
         neighborhood: "Maschwitz",
-        vehicle_type: "sedan",
+        vehicle_type: "Auto",
         service_name: "Lavado Básico",
         scheduled_date: tomorrow,
         scheduled_time: "10:30",
         duration_minutes: 60,
         price: 35000,
         payment_method: "Pagar después",
+        payment_status: "pending",
+        booking_status: "pending",
         notes: tag,
       };
-      const ok = await supabase.from("bookings").insert(base);
-      setInsertResult(ok.error ? `FAIL: ${ok.error.message}` : "OK");
 
-      const bad = await supabase.from("bookings").insert({ ...base, booking_source: "admin" });
+      const adminInsert = await supabase.from("bookings").insert({
+        ...base,
+        booking_source: "admin",
+      });
+      setInsertResult(adminInsert.error ? `FAIL: ${adminInsert.error.message}` : "OK");
+
+      const anon = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const publicInsert = await anon.from("bookings").insert({
+        ...base,
+        booking_source: "website",
+      });
       setForbiddenResult(
-        bad.error ? `OK (bloqueado: ${bad.error.code})` : "FAIL (insert permitido!)",
+        publicInsert.error
+          ? `OK (bloqueado: ${publicInsert.error.code ?? publicInsert.error.message})`
+          : "FAIL (insert público permitido!)",
       );
 
-      // Cleanup as admin
       await supabase.from("bookings").delete().eq("notes", tag);
     } finally {
       setRunning(false);
@@ -1535,8 +1550,8 @@ function HealthTab() {
               value={<Badge variant="secondary">Activo en tablas principales</Badge>}
             />
             <Row label="Edge function create-website-booking" value={edgeResult} />
-            <Row label="Insert público (válido)" value={insertResult} />
-            <Row label="Insert público (bloqueado)" value={forbiddenResult} />
+            <Row label="Insert admin (válido)" value={insertResult} />
+            <Row label="Insert público website (bloqueado)" value={forbiddenResult} />
             {updated && (
               <Row label="Última actualización" value={updated.toLocaleTimeString("es-AR")} />
             )}

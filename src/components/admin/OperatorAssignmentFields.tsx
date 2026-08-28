@@ -225,7 +225,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
               <SelectValue placeholder="Sin asignar" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">Sin asignar (todos los operadores)</SelectItem>
+              <SelectItem value="__none__">Sin asignar (no visible para operadores)</SelectItem>
               {(staffQuery.data ?? []).map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.email ?? s.id.slice(0, 8)} ({s.role})
