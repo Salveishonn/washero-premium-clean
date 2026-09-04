@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseArgentinaMobile } from "@/lib/phone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,6 +109,8 @@ export type Booking = {
   assigned_vehicle_label?: string | null;
   operator_notes?: string | null;
   price: number;
+  selected_extras?: string[] | null;
+  extras_total?: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -117,6 +120,22 @@ export type Service = {
   id: string;
   name: string;
   base_price: number;
+  duration_minutes: number;
+};
+
+export type PricingExtra = {
+  id: string;
+  code: string;
+  name: string;
+  amount: number;
+  duration_minutes: number;
+};
+
+export type PricingVehicle = {
+  id: string;
+  code: string;
+  name: string;
+  amount: number;
   duration_minutes: number;
 };
 
@@ -220,7 +239,81 @@ export function useLookups() {
     },
     staleTime: 30_000,
   });
-  return { services, areas };
+  const pricing = useQuery({
+    queryKey: ["lookup", "pricing_items"],
+    queryFn: async (): Promise<{ extras: PricingExtra[]; vehicles: PricingVehicle[] }> => {
+      const { data, error } = await supabase
+        .from("pricing_items")
+        .select("id,code,name,type,amount,duration_minutes,display_order")
+        .eq("active", true)
+        .order("display_order");
+      if (error) throw error;
+      const rows = data ?? [];
+      return {
+        extras: rows
+          .filter((r) => r.type === "extra")
+          .map((r) => ({
+            id: r.id,
+            code: r.code,
+            name: r.name,
+            amount: Number(r.amount) || 0,
+            duration_minutes: Number(r.duration_minutes) || 0,
+          })),
+        vehicles: rows
+          .filter((r) => r.type === "vehicle_surcharge")
+          .map((r) => ({
+            id: r.id,
+            code: r.code,
+            name: r.name,
+            amount: Number(r.amount) || 0,
+            duration_minutes: Number(r.duration_minutes) || 0,
+          })),
+      };
+    },
+    staleTime: 30_000,
+  });
+  return { services, areas, pricing };
+}
+
+function vehicleSurchargeFor(
+  vehicles: PricingVehicle[],
+  vehicleType: string,
+): PricingVehicle | null {
+  const fold = (v: string) =>
+    v
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  const t = fold(vehicleType);
+  return (
+    vehicles.find((v) => fold(v.code) === t || fold(v.name) === t) ??
+    vehicles.find((v) => fold(v.code).includes(t) || fold(v.name).includes(t)) ??
+    null
+  );
+}
+
+export function computeAdminCatalogPrice(opts: {
+  service?: Service | null;
+  vehicleType: string;
+  selectedExtras: string[];
+  vehicles: PricingVehicle[];
+  extras: PricingExtra[];
+}): { catalogPrice: number; extrasTotal: number; vehicleSurcharge: number; durationMinutes: number } {
+  const base = opts.service?.base_price ?? 0;
+  const vehicle = vehicleSurchargeFor(opts.vehicles, opts.vehicleType);
+  const vehicleSurcharge = vehicle?.amount ?? 0;
+  const selected = opts.extras.filter((e) => opts.selectedExtras.includes(e.code));
+  const extrasTotal = selected.reduce((sum, e) => sum + e.amount, 0);
+  const durationMinutes =
+    (opts.service?.duration_minutes ?? 60) +
+    (vehicle?.duration_minutes ?? 0) +
+    selected.reduce((sum, e) => sum + e.duration_minutes, 0);
+  return {
+    catalogPrice: base + vehicleSurcharge + extrasTotal,
+    extrasTotal,
+    vehicleSurcharge,
+    durationMinutes,
+  };
 }
 
 export function useSlotsForDate(date: string) {
@@ -458,6 +551,14 @@ export function BookingDetail({
           <p className="text-xs text-muted-foreground">
             {booking.duration_minutes} min · {formatPrice(booking.price)}
           </p>
+          {Array.isArray(booking.selected_extras) && booking.selected_extras.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Extras: {booking.selected_extras.join(", ")}
+              {booking.extras_total != null && booking.extras_total > 0
+                ? ` (+${formatPrice(booking.extras_total)})`
+                : ""}
+            </p>
+          )}
         </div>
         <div className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground">Ubicación</p>
@@ -738,9 +839,28 @@ export function BookingEditForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { services, areas } = useLookups();
-  const [form, setForm] = useState<Booking>(booking);
+  const { services, areas, pricing } = useLookups();
+  const [form, setForm] = useState<Booking>({
+    ...booking,
+    selected_extras: Array.isArray(booking.selected_extras) ? booking.selected_extras : [],
+  });
+  const [priceTouched, setPriceTouched] = useState(true);
   const slots = useSlotsForDate(form.scheduled_date);
+
+  const extras = pricing.data?.extras ?? [];
+  const vehicles = pricing.data?.vehicles ?? [];
+  const selectedExtras = Array.isArray(form.selected_extras) ? form.selected_extras : [];
+
+  const catalog = useMemo(() => {
+    const svc = services.data?.find((s) => s.id === form.service_id) ?? null;
+    return computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras,
+      vehicles,
+      extras,
+    });
+  }, [services.data, form.service_id, form.vehicle_type, selectedExtras, vehicles, extras]);
 
   const slotWarning = useMemo(() => {
     if (!slots.data) return null;
@@ -758,11 +878,37 @@ export function BookingEditForm({
   const onServiceChange = (id: string) => {
     const svc = services.data?.find((s) => s.id === id);
     if (!svc) return;
+    const next = computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras,
+      vehicles,
+      extras,
+    });
     update({
       service_id: svc.id,
       service_name: svc.name,
-      price: svc.base_price,
-      duration_minutes: svc.duration_minutes,
+      duration_minutes: next.durationMinutes,
+      ...(priceTouched ? {} : { price: next.catalogPrice }),
+    });
+  };
+
+  const toggleExtra = (code: string) => {
+    const nextExtras = selectedExtras.includes(code)
+      ? selectedExtras.filter((c) => c !== code)
+      : [...selectedExtras, code];
+    const svc = services.data?.find((s) => s.id === form.service_id) ?? null;
+    const next = computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras: nextExtras,
+      vehicles,
+      extras,
+    });
+    update({
+      selected_extras: nextExtras,
+      duration_minutes: next.durationMinutes,
+      ...(priceTouched ? {} : { price: next.catalogPrice }),
     });
   };
 
@@ -787,6 +933,8 @@ export function BookingEditForm({
           scheduled_time: form.scheduled_time,
           duration_minutes: form.duration_minutes,
           price: form.price,
+          selected_extras: selectedExtras,
+          extras_total: catalog.extrasTotal,
           payment_method: form.payment_method,
           payment_status: form.payment_status,
           booking_status: form.booking_status,
@@ -821,6 +969,15 @@ export function BookingEditForm({
           services={services.data ?? []}
           areas={areas.data ?? []}
           slots={slots.data ?? []}
+          extras={extras}
+          catalogPrice={catalog.catalogPrice}
+          priceTouched={priceTouched}
+          onPriceTouched={() => setPriceTouched(true)}
+          onResetPriceToCatalog={() => {
+            setPriceTouched(false);
+            update({ price: catalog.catalogPrice });
+          }}
+          onToggleExtra={toggleExtra}
           slotWarning={slotWarning}
           onServiceChange={onServiceChange}
           mode="edit"
@@ -854,7 +1011,7 @@ export function BookingCreateForm({
   defaultDate?: string;
   defaultTime?: string;
 }) {
-  const { services, areas } = useLookups();
+  const { services, areas, pricing } = useLookups();
   const [form, setForm] = useState<Booking>({
     id: "",
     customer_id: null,
@@ -874,13 +1031,36 @@ export function BookingCreateForm({
     booking_status: "confirmed",
     booking_source: "admin",
     price: 0,
+    selected_extras: [],
+    extras_total: 0,
     notes: "",
     created_at: "",
     updated_at: "",
   });
+  const [priceTouched, setPriceTouched] = useState(false);
   const slots = useSlotsForDate(form.scheduled_date);
 
+  const extras = pricing.data?.extras ?? [];
+  const vehicles = pricing.data?.vehicles ?? [];
+  const selectedExtras = Array.isArray(form.selected_extras) ? form.selected_extras : [];
+
+  const catalog = useMemo(() => {
+    const svc = services.data?.find((s) => s.id === form.service_id) ?? null;
+    return computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras,
+      vehicles,
+      extras,
+    });
+  }, [services.data, form.service_id, form.vehicle_type, selectedExtras, vehicles, extras]);
+
+  const isPastDate = form.scheduled_date < todayIso();
+
   const slotWarning = useMemo(() => {
+    if (isPastDate) {
+      return "Fecha en el pasado: se carga como lavado histórico (sin exigir cupo del calendario).";
+    }
     if (!slots.data) return null;
     const match = slots.data.find(
       (s) => s.start_time.slice(0, 5) === form.scheduled_time.slice(0, 5),
@@ -889,18 +1069,62 @@ export function BookingCreateForm({
       return "Este horario no está en el calendario. Crear la reserva puede fallar si el slot no existe.";
     if (!match.active) return "Este slot está inactivo. La reserva puede ser rechazada.";
     return null;
-  }, [slots.data, form.scheduled_time]);
+  }, [slots.data, form.scheduled_time, isPastDate]);
 
   const update = (patch: Partial<Booking>) => setForm((f) => ({ ...f, ...patch }));
 
   const onServiceChange = (id: string) => {
     const svc = services.data?.find((s) => s.id === id);
     if (!svc) return;
+    const next = computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras,
+      vehicles,
+      extras,
+    });
     update({
       service_id: svc.id,
       service_name: svc.name,
-      price: svc.base_price,
-      duration_minutes: svc.duration_minutes,
+      duration_minutes: next.durationMinutes,
+      ...(priceTouched ? {} : { price: next.catalogPrice }),
+    });
+  };
+
+  const toggleExtra = (code: string) => {
+    const nextExtras = selectedExtras.includes(code)
+      ? selectedExtras.filter((c) => c !== code)
+      : [...selectedExtras, code];
+    const svc = services.data?.find((s) => s.id === form.service_id) ?? null;
+    const next = computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: form.vehicle_type,
+      selectedExtras: nextExtras,
+      vehicles,
+      extras,
+    });
+    update({
+      selected_extras: nextExtras,
+      extras_total: next.extrasTotal,
+      duration_minutes: next.durationMinutes,
+      ...(priceTouched ? {} : { price: next.catalogPrice }),
+    });
+  };
+
+  // Keep catalog preview in sync when vehicle changes
+  const onVehicleChange = (v: string) => {
+    const svc = services.data?.find((s) => s.id === form.service_id) ?? null;
+    const next = computeAdminCatalogPrice({
+      service: svc,
+      vehicleType: v,
+      selectedExtras,
+      vehicles,
+      extras,
+    });
+    update({
+      vehicle_type: v,
+      duration_minutes: next.durationMinutes,
+      ...(priceTouched ? {} : { price: next.catalogPrice }),
     });
   };
 
@@ -918,6 +1142,9 @@ export function BookingCreateForm({
       }
       const time =
         form.scheduled_time.length === 5 ? `${form.scheduled_time}:00` : form.scheduled_time;
+      const catalogPrice = catalog.catalogPrice;
+      const priceOverride =
+        priceTouched || form.price !== catalogPrice ? form.price : null;
       const res = await invokeCreateAdminBooking({
         customer_name: form.customer_name.trim(),
         customer_phone: parsedPhone.display,
@@ -934,7 +1161,8 @@ export function BookingCreateForm({
         booking_status: form.booking_status,
         booking_source: "admin",
         notes: form.notes?.trim() || null,
-        selected_extras: [],
+        selected_extras: selectedExtras,
+        price_override: priceOverride,
       });
       if (!res.ok) {
         throw new Error(res.customer_message ?? "No pudimos crear la reserva.");
@@ -959,18 +1187,40 @@ export function BookingCreateForm({
     <>
       <DialogHeader>
         <DialogTitle>Nueva reserva manual</DialogTitle>
-        <DialogDescription>Cargá manualmente una reserva del lado del admin.</DialogDescription>
+        <DialogDescription>
+          Cargá manualmente una reserva del lado del admin. Podés usar fechas pasadas para
+          lavados históricos, elegir extras y ajustar el precio.
+        </DialogDescription>
       </DialogHeader>
       <form onSubmit={submit} className="space-y-4">
         <BookingFormFields
           form={form}
-          update={update}
+          update={(patch) => {
+            if (patch.vehicle_type != null && patch.vehicle_type !== form.vehicle_type) {
+              onVehicleChange(patch.vehicle_type);
+              const rest = { ...patch };
+              delete rest.vehicle_type;
+              if (Object.keys(rest).length) update(rest);
+              return;
+            }
+            update(patch);
+          }}
           services={services.data ?? []}
           areas={areas.data ?? []}
           slots={slots.data ?? []}
+          extras={extras}
+          catalogPrice={catalog.catalogPrice}
+          priceTouched={priceTouched}
+          onPriceTouched={() => setPriceTouched(true)}
+          onResetPriceToCatalog={() => {
+            setPriceTouched(false);
+            update({ price: catalog.catalogPrice });
+          }}
+          onToggleExtra={toggleExtra}
           slotWarning={slotWarning}
           onServiceChange={onServiceChange}
           mode="create"
+          allowFreeTime={isPastDate || (slots.data?.length ?? 0) === 0}
         />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
@@ -996,20 +1246,37 @@ export function BookingFormFields({
   services,
   areas,
   slots,
+  extras = [],
+  catalogPrice = 0,
+  priceTouched = false,
+  onPriceTouched,
+  onResetPriceToCatalog,
+  onToggleExtra,
   slotWarning,
   onServiceChange,
   mode = "edit",
+  allowFreeTime = false,
 }: {
   form: Booking;
   update: (p: Partial<Booking>) => void;
   services: Service[];
   areas: ServiceArea[];
   slots: AvailabilitySlot[];
+  extras?: PricingExtra[];
+  catalogPrice?: number;
+  priceTouched?: boolean;
+  onPriceTouched?: () => void;
+  onResetPriceToCatalog?: () => void;
+  onToggleExtra?: (code: string) => void;
   slotWarning: string | null;
   onServiceChange: (id: string) => void;
   mode?: "create" | "edit";
+  allowFreeTime?: boolean;
 }) {
   const isCreate = mode === "create";
+  const selectedExtras = Array.isArray(form.selected_extras) ? form.selected_extras : [];
+  const showFreeTime = allowFreeTime || slots.length === 0;
+
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Nombre">
@@ -1091,6 +1358,31 @@ export function BookingFormFields({
           </SelectContent>
         </Select>
       </Field>
+      {extras.length > 0 && onToggleExtra && (
+        <div className="sm:col-span-2 space-y-2">
+          <Label className="text-xs">Extras</Label>
+          <div className="space-y-2 rounded-md border p-3">
+            {extras.map((e) => {
+              const active = selectedExtras.includes(e.code);
+              return (
+                <label
+                  key={e.id}
+                  className="flex cursor-pointer items-center justify-between gap-3 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <Checkbox
+                      checked={active}
+                      onCheckedChange={() => onToggleExtra(e.code)}
+                    />
+                    {e.name}
+                  </span>
+                  <span className="font-medium text-muted-foreground">{formatPrice(e.amount)}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <Field label="Fecha">
         <Input
           type="date"
@@ -1100,30 +1392,36 @@ export function BookingFormFields({
         />
       </Field>
       <Field label="Hora">
-        <Select
-          value={form.scheduled_time.slice(0, 5)}
-          onValueChange={(v) => update({ scheduled_time: `${v}:00` })}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Elegí un horario" />
-          </SelectTrigger>
-          <SelectContent>
-            {slots.length === 0 ? (
-              <SelectItem value={form.scheduled_time.slice(0, 5)}>
-                {form.scheduled_time.slice(0, 5)}
-              </SelectItem>
-            ) : (
-              slots.map((s) => {
+        {showFreeTime ? (
+          <Input
+            type="time"
+            value={form.scheduled_time.slice(0, 5)}
+            onChange={(e) => {
+              const v = e.target.value;
+              update({ scheduled_time: v.length === 5 ? `${v}:00` : v });
+            }}
+            required
+          />
+        ) : (
+          <Select
+            value={form.scheduled_time.slice(0, 5)}
+            onValueChange={(v) => update({ scheduled_time: `${v}:00` })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Elegí un horario" />
+            </SelectTrigger>
+            <SelectContent>
+              {slots.map((s) => {
                 const t = s.start_time.slice(0, 5);
                 return (
                   <SelectItem key={s.id} value={t}>
                     {t} {s.active ? "" : "(inactivo)"}
                   </SelectItem>
                 );
-              })
-            )}
-          </SelectContent>
-        </Select>
+              })}
+            </SelectContent>
+          </Select>
+        )}
       </Field>
       {slotWarning && (
         <div className="sm:col-span-2 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
@@ -1141,23 +1439,31 @@ export function BookingFormFields({
           />
         </Field>
       )}
-      {isCreate ? (
-        <Field label="Precio" className="sm:col-span-2">
-          <p className="text-sm text-muted-foreground rounded-md border bg-muted/30 px-3 py-2">
-            Se calcula automáticamente al crear (servicio + vehículo + extras).
-            {form.price > 0 ? ` Vista previa local: ${formatPrice(form.price)}.` : ""}
-          </p>
-        </Field>
-      ) : (
-        <Field label="Precio">
+      <Field label="Precio" className="sm:col-span-2">
+        <div className="space-y-2">
           <Input
             type="number"
             min={0}
+            step={100}
             value={form.price}
-            onChange={(e) => update({ price: Number(e.target.value) })}
+            onChange={(e) => {
+              onPriceTouched?.();
+              update({ price: Number(e.target.value) });
+            }}
           />
-        </Field>
-      )}
+          <p className="text-xs text-muted-foreground">
+            Catálogo (servicio + vehículo + extras): {formatPrice(catalogPrice)}.
+            {priceTouched && form.price !== catalogPrice
+              ? " Precio manual aplicado (descuento amigos/familia)."
+              : " Podés editar el monto para aplicar un descuento."}
+          </p>
+          {priceTouched && form.price !== catalogPrice && onResetPriceToCatalog && (
+            <Button type="button" variant="ghost" size="sm" onClick={onResetPriceToCatalog}>
+              Restaurar precio de catálogo
+            </Button>
+          )}
+        </div>
+      </Field>
       <Field label="Método de pago">
         <Select value={form.payment_method} onValueChange={(v) => update({ payment_method: v })}>
           <SelectTrigger>

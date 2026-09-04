@@ -1934,7 +1934,12 @@ export type Database = {
       };
       next_invoice_number: { Args: never; Returns: string };
       create_booking_atomic: {
-        Args: { p_booking: Json; p_idempotency_key?: string; p_units: Json };
+        Args: {
+          p_booking: Json;
+          p_idempotency_key?: string;
+          p_skip_slot_checks?: boolean;
+          p_units: Json;
+        };
         Returns: Json;
       };
       cancel_booking_atomic: {
