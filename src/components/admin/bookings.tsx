@@ -275,19 +275,49 @@ export function useLookups() {
   return { services, areas, pricing };
 }
 
+function foldPricingText(v: string) {
+  return v
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Map admin vehicle_type labels to pricing_items.vehicle_surcharge codes. */
+export function normalizeAdminVehiclePricingCode(vehicleType: string): string {
+  const t = foldPricingText(vehicleType.trim());
+  if (!t || t === "otro" || t === "moto") return "";
+  if (t === "suv" || t.includes("crossover")) return "suv";
+  if (
+    t.includes("pickup") ||
+    t.includes("pick up") ||
+    t.includes("pick-up") ||
+    t === "van" ||
+    t.includes("utilitario") ||
+    (t.includes("camioneta") && !t.includes("suv"))
+  ) {
+    return "pickup";
+  }
+  if (t === "auto" || t.includes("auto chico") || t.includes("chico")) return "auto";
+  return t;
+}
+
 function vehicleSurchargeFor(
   vehicles: PricingVehicle[],
   vehicleType: string,
 ): PricingVehicle | null {
-  const fold = (v: string) =>
-    v
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-  const t = fold(vehicleType);
+  const code = normalizeAdminVehiclePricingCode(vehicleType);
+  if (!code) return null;
+  const foldedCode = foldPricingText(code);
+  const foldedType = foldPricingText(vehicleType);
   return (
-    vehicles.find((v) => fold(v.code) === t || fold(v.name) === t) ??
-    vehicles.find((v) => fold(v.code).includes(t) || fold(v.name).includes(t)) ??
+    vehicles.find((v) => foldPricingText(v.code) === foldedCode) ??
+    vehicles.find((v) => foldPricingText(v.code) === foldedType || foldPricingText(v.name) === foldedType) ??
+    vehicles.find(
+      (v) =>
+        foldPricingText(v.code).includes(foldedCode) ||
+        foldPricingText(v.name).includes(foldedCode) ||
+        foldPricingText(v.name).includes(foldedType),
+    ) ??
     null
   );
 }
