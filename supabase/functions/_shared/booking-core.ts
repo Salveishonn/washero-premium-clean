@@ -63,6 +63,11 @@ export type CoreBookingInput = {
   /** Admin / approval paths only — must match bookings check constraints */
   requested_booking_status?: string;
   requested_payment_status?: string;
+  /**
+   * Admin-only final price override (friends/family discounts, historical loads).
+   * When set, replaces the catalog total; extras still affect duration + breakdown.
+   */
+  price_override?: number | null;
   /** Botmaker audit fields merged into price_breakdown.botmaker */
   botmaker_meta?: {
     input_extras?: string;
@@ -906,13 +911,17 @@ export async function tryCreateBooking(
     return { ok: false, reason: "invalid_time", message: "Horario inválido.", http_status: 400 };
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  if (scheduled_date < todayStr)
+  const isAdminSource = input.source === "admin";
+  const isPastDate = scheduled_date < todayStr;
+  // Admin may log historical washes that were not booked through the website.
+  if (isPastDate && !isAdminSource)
     return {
       ok: false,
       reason: "past_date",
       message: "La fecha debe ser hoy o posterior.",
       http_status: 400,
     };
+  const skipSlotChecks = isAdminSource && isPastDate;
 
   const scheduled_time = normTime(scheduled_time_raw);
 
@@ -1018,43 +1027,45 @@ export async function tryCreateBooking(
   const area_match =
     !!cov.zone || (zones ?? []).some((z) => foldText(z.name) === foldText(neighborhood));
 
-  const { data: slot } = await admin
-    .from("availability_slots")
-    .select("id,date,start_time,end_time,capacity,active")
-    .eq("date", scheduled_date)
-    .eq("start_time", scheduled_time)
-    .eq("active", true)
-    .maybeSingle();
-  if (!slot)
-    return {
-      ok: false,
-      reason: "slot_not_found",
-      message: "Ese horario ya no está disponible.",
-      http_status: 409,
-    };
+  if (!skipSlotChecks) {
+    const { data: slot } = await admin
+      .from("availability_slots")
+      .select("id,date,start_time,end_time,capacity,active")
+      .eq("date", scheduled_date)
+      .eq("start_time", scheduled_time)
+      .eq("active", true)
+      .maybeSingle();
+    if (!slot)
+      return {
+        ok: false,
+        reason: "slot_not_found",
+        message: "Ese horario ya no está disponible.",
+        http_status: 409,
+      };
 
-  const { data: daySlots } = await admin
-    .from("availability_slots")
-    .select("end_time")
-    .eq("date", scheduled_date)
-    .eq("active", true);
-  const operatingDayEndMinutes = Math.max(
-    maxOperatingDayEndMinutes((daySlots ?? []) as Array<{ end_time: string }>),
-    timeToMinutes((slot as { end_time: string }).end_time),
-  );
-  if (
-    !requestedIntervalFitsOperatingEnd(
-      operatingDayEndMinutes,
-      scheduled_time,
-      total_duration_minutes,
-    )
-  ) {
-    return {
-      ok: false,
-      reason: "service_does_not_fit_slot",
-      message: "El servicio elegido no entra en el horario seleccionado.",
-      http_status: 409,
-    };
+    const { data: daySlots } = await admin
+      .from("availability_slots")
+      .select("end_time")
+      .eq("date", scheduled_date)
+      .eq("active", true);
+    const operatingDayEndMinutes = Math.max(
+      maxOperatingDayEndMinutes((daySlots ?? []) as Array<{ end_time: string }>),
+      timeToMinutes((slot as { end_time: string }).end_time),
+    );
+    if (
+      !requestedIntervalFitsOperatingEnd(
+        operatingDayEndMinutes,
+        scheduled_time,
+        total_duration_minutes,
+      )
+    ) {
+      return {
+        ok: false,
+        reason: "service_does_not_fit_slot",
+        message: "El servicio elegido no entra en el horario seleccionado.",
+        http_status: 409,
+      };
+    }
   }
 
   // Capacity + duplicate-phone are re-verified authoritatively (under an advisory lock) inside
@@ -1062,6 +1073,22 @@ export async function tryCreateBooking(
   // since a check here would be racy and would just duplicate that logic in a second place.
 
   const unitSummaries = pricedUnits.map(buildUnitSummaryEntry);
+  const catalog_total = total_price;
+  let final_price = catalog_total;
+  let admin_price_override: number | null = null;
+  let admin_discount = 0;
+  if (
+    isAdminSource &&
+    typeof input.price_override === "number" &&
+    Number.isFinite(input.price_override) &&
+    input.price_override >= 0
+  ) {
+    admin_price_override = Math.round(input.price_override);
+    final_price = admin_price_override;
+    admin_discount = Math.max(0, catalog_total - final_price);
+  }
+  const effective_discount_total = discount_total + admin_discount;
+
   const price_breakdown: Record<string, unknown> = {
     service: {
       name: primary.service.name,
@@ -1078,13 +1105,21 @@ export async function tryCreateBooking(
     subtotal: primary.service_price,
     vehicle_surcharge: surcharge,
     extras_total,
-    total: total_price,
+    total: final_price,
+    catalog_total,
     duration_minutes: total_duration_minutes,
     total_duration_minutes,
     subtotal_before_discounts,
-    discount_total,
+    discount_total: effective_discount_total,
     vehicle_count,
     ...(vehicle_count > 1 ? { second_unit_discount_rate: SECOND_UNIT_DISCOUNT_RATE } : {}),
+    ...(admin_price_override != null
+      ? {
+          manual_price_override: true,
+          admin_price_override,
+          admin_discount,
+        }
+      : {}),
     units: unitSummaries,
     lines: [
       ...unitSummaries.flatMap((unit) => {
@@ -1114,6 +1149,16 @@ export async function tryCreateBooking(
         }
         return lines;
       }),
+      ...(admin_discount > 0
+        ? [{ label: "Descuento admin (precio manual)", amount: -admin_discount }]
+        : admin_price_override != null && admin_price_override > catalog_total
+          ? [
+              {
+                label: "Ajuste admin (precio manual)",
+                amount: admin_price_override - catalog_total,
+              },
+            ]
+          : []),
     ],
   };
   if (input.botmaker_meta && Object.keys(input.botmaker_meta).length) {
@@ -1188,6 +1233,13 @@ export async function tryCreateBooking(
       );
     }
   }
+  if (admin_price_override != null) {
+    notes_parts.push(
+      admin_discount > 0
+        ? `Precio manual admin: $${admin_price_override} (catálogo $${catalog_total}, descuento $${admin_discount})`
+        : `Precio manual admin: $${admin_price_override} (catálogo $${catalog_total})`,
+    );
+  }
   if (input.is_test) notes_parts.push("[TEST]");
   const notes = notes_parts.length ? notes_parts.join(" | ") : null;
 
@@ -1253,7 +1305,7 @@ export async function tryCreateBooking(
     scheduled_date,
     scheduled_time,
     duration_minutes: total_duration_minutes,
-    price: total_price,
+    price: final_price,
     payment_method,
     payment_status,
     booking_status,
@@ -1283,7 +1335,7 @@ export async function tryCreateBooking(
     private_extra_details,
     vehicle_count,
     subtotal_before_discounts,
-    discount_total,
+    discount_total: effective_discount_total,
     marketing_source,
     marketing_medium,
     marketing_campaign,
@@ -1320,6 +1372,7 @@ export async function tryCreateBooking(
     p_booking: bookingPayload,
     p_units: bookingUnitRows,
     p_idempotency_key: input.idempotency_key ?? null,
+    p_skip_slot_checks: skipSlotChecks,
   });
 
   if (rpcErr) {
@@ -1367,7 +1420,7 @@ export async function tryCreateBooking(
     price: result.price,
   };
 
-  if (!input.is_test) {
+  if (!input.is_test && !skipSlotChecks) {
     scheduleNewBookingOperatorPush(created.id);
   }
 
@@ -1403,7 +1456,7 @@ export async function tryCreateBooking(
     coverage_zone_name: cov.zone?.name ?? preset_coverage_zone_name,
     vehicle_count,
     subtotal_before_discounts,
-    discount_total,
+    discount_total: effective_discount_total,
     units: unitSummaries,
   };
 }

@@ -61,6 +61,7 @@ type Payload = {
   booking_source?: "admin" | "botmaker";
   notes?: string | null;
   selected_extras?: string[];
+  price_override?: number | null;
   place_id?: string | null;
   formatted_address?: string | null;
   address_lat?: number | null;
@@ -129,6 +130,10 @@ Deno.serve(async (req) => {
     payment_method,
     notes: body.notes ?? null,
     selected_extras: Array.isArray(body.selected_extras) ? body.selected_extras : [],
+    price_override:
+      typeof body.price_override === "number" && Number.isFinite(body.price_override)
+        ? body.price_override
+        : null,
     source: coreSource,
     is_test: !!body.is_test,
     place_id: body.place_id ?? null,
@@ -160,9 +165,14 @@ Deno.serve(async (req) => {
     }).eq("id", body.conversation_id);
   }
 
-  scheduleBookingCreatedWhatsApp(admin, bookingId, {
-    skipSources: ["botmaker"],
-  });
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isPastHistorical =
+    !!body.scheduled_date && body.scheduled_date < todayStr && booking_source === "admin";
+  if (!isPastHistorical) {
+    scheduleBookingCreatedWhatsApp(admin, bookingId, {
+      skipSources: ["botmaker"],
+    });
+  }
   if ((body.payment_status ?? "pending") === "paid") {
     void deliverInvoiceForBooking(admin, bookingId).catch((e) =>
       console.error("[create-admin-booking] invoice delivery", e),

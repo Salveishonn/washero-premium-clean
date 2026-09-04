@@ -22,6 +22,8 @@ export type CreateAdminBookingPayload = {
   booking_source?: "admin" | "botmaker";
   notes?: string | null;
   selected_extras?: string[];
+  /** Final price override (admin discounts / friends & family). */
+  price_override?: number | null;
   place_id?: string | null;
   formatted_address?: string | null;
   address_lat?: number | null;
