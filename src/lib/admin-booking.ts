@@ -46,12 +46,39 @@ export type CreateAdminBookingResponse = {
   extras_total?: number;
 };
 
+async function messageFromFunctionsError(error: { message: string; context?: Response }): Promise<string> {
+  const fallback = error.message || "No pudimos crear la reserva.";
+  // Prefer the edge function JSON body over the generic FunctionsHttpError / fetch text.
+  try {
+    const ctx = error.context;
+    if (ctx && typeof ctx.json === "function") {
+      const body = (await ctx.clone().json()) as {
+        customer_message?: string;
+        message?: string;
+        status?: string;
+      };
+      if (body?.customer_message) return body.customer_message;
+      if (body?.message) return body.message;
+    }
+  } catch {
+    // ignore parse failures and keep fallback
+  }
+  if (/failed to send a request to the edge function/i.test(fallback)) {
+    return "No pudimos contactar el servidor de reservas. Probá de nuevo en unos segundos.";
+  }
+  return fallback;
+}
+
 export async function invokeCreateAdminBooking(
   payload: CreateAdminBookingPayload,
 ): Promise<CreateAdminBookingResponse> {
   const { data, error } = await supabase.functions.invoke("create-admin-booking", { body: payload });
   if (error) {
-    return { ok: false, status: "server_error", customer_message: error.message };
+    return {
+      ok: false,
+      status: "server_error",
+      customer_message: await messageFromFunctionsError(error),
+    };
   }
   return (data ?? { ok: false, status: "server_error" }) as CreateAdminBookingResponse;
 }
