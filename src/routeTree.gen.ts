@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as OperatorRouteImport } from './routes/operator'
 import { Route as PublicIndexRouteImport } from './routes/_public.index'
 import { Route as PublicGraciasRouteImport } from './routes/_public.gracias'
+import { Route as PublicPrivacyRouteImport } from './routes/_public.privacy'
 import { Route as PublicReservarRouteImport } from './routes/_public.reservar'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAgenteWhatsappRouteImport } from './routes/admin.agente-whatsapp'
@@ -70,6 +71,11 @@ const PublicIndexRoute = PublicIndexRouteImport.update({
 const PublicGraciasRoute = PublicGraciasRouteImport.update({
   id: '/gracias',
   path: '/gracias',
+  getParentRoute: () => PublicRoute,
+} as any)
+const PublicPrivacyRoute = PublicPrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => PublicRoute,
 } as any)
 const PublicReservarRoute = PublicReservarRouteImport.update({
@@ -245,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/operator': typeof OperatorRouteWithChildren
   '/gracias': typeof PublicGraciasRoute
+  '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
@@ -281,6 +288,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/gracias': typeof PublicGraciasRoute
+  '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
@@ -322,6 +330,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/operator': typeof OperatorRouteWithChildren
   '/_public/gracias': typeof PublicGraciasRoute
+  '/_public/privacy': typeof PublicPrivacyRoute
   '/_public/reservar': typeof PublicReservarRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
@@ -364,6 +373,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/operator'
     | '/gracias'
+    | '/privacy'
     | '/reservar'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
@@ -400,6 +410,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/gracias'
+    | '/privacy'
     | '/reservar'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
@@ -440,6 +451,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/operator'
     | '/_public/gracias'
+    | '/_public/privacy'
     | '/_public/reservar'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
@@ -517,6 +529,13 @@ declare module '@tanstack/react-router' {
       path: '/gracias'
       fullPath: '/gracias'
       preLoaderRoute: typeof PublicGraciasRouteImport
+      parentRoute: typeof PublicRoute
+    }
+    '/_public/privacy': {
+      id: '/_public/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PublicPrivacyRouteImport
       parentRoute: typeof PublicRoute
     }
     '/_public/reservar': {
@@ -755,6 +774,7 @@ declare module '@tanstack/react-router' {
 
 interface PublicRouteChildren {
   PublicGraciasRoute: typeof PublicGraciasRoute
+  PublicPrivacyRoute: typeof PublicPrivacyRoute
   PublicReservarRoute: typeof PublicReservarRoute
   PublicIndexRoute: typeof PublicIndexRoute
   PublicComprobantePublicTokenRoute: typeof PublicComprobantePublicTokenRoute
@@ -763,6 +783,7 @@ interface PublicRouteChildren {
 
 const PublicRouteChildren: PublicRouteChildren = {
   PublicGraciasRoute: PublicGraciasRoute,
+  PublicPrivacyRoute: PublicPrivacyRoute,
   PublicReservarRoute: PublicReservarRoute,
   PublicIndexRoute: PublicIndexRoute,
   PublicComprobantePublicTokenRoute: PublicComprobantePublicTokenRoute,
@@ -858,13 +879,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

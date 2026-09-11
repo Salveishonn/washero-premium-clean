@@ -1,0 +1,9 @@
+# Allow public crawling of WASHERO marketing/legal pages (including Meta App Review crawlers).
+User-agent: *
+Allow: /
+
+# Explicit allow for privacy policy used by Meta Developer App settings.
+User-agent: *
+Allow: /privacy
+
+Sitemap: https://www.washero.ar/

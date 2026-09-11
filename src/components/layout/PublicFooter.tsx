@@ -20,6 +20,7 @@ export function PublicFooter() {
             <li><a href="/#servicios" className="hover:text-foreground">Servicios</a></li>
             <li><a href="/#zonas" className="hover:text-foreground">Zonas</a></li>
             <li><a href={WA} target="_blank" rel="noopener" className="hover:text-foreground">WhatsApp</a></li>
+            <li><Link to="/privacy" className="hover:text-foreground">Privacidad</Link></li>
             <li><Link to="/admin" className="hover:text-foreground">Admin</Link></li>
           </ul>
         </nav>
