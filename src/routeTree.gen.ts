@@ -32,7 +32,6 @@ import { Route as AdminLeadsKipperRouteImport } from './routes/admin.leads-kippe
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminMapaDemandaRouteImport } from './routes/admin.mapa-demanda'
 import { Route as AdminMensajesRouteImport } from './routes/admin.mensajes'
-import { Route as AdminMetaReviewRouteImport } from './routes/admin.meta-review'
 import { Route as AdminNotificacionesRouteImport } from './routes/admin.notificaciones'
 import { Route as AdminPreciosRouteImport } from './routes/admin.precios'
 import { Route as AdminReservasRouteImport } from './routes/admin.reservas'
@@ -164,11 +163,6 @@ const AdminMensajesRoute = AdminMensajesRouteImport.update({
   path: '/mensajes',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminMetaReviewRoute = AdminMetaReviewRouteImport.update({
-  id: '/meta-review',
-  path: '/meta-review',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminNotificacionesRoute = AdminNotificacionesRouteImport.update({
   id: '/notificaciones',
   path: '/notificaciones',
@@ -274,7 +268,6 @@ export interface FileRoutesByFullPath {
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
   '/admin/mensajes': typeof AdminMensajesRoute
-  '/admin/meta-review': typeof AdminMetaReviewRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
@@ -312,7 +305,6 @@ export interface FileRoutesByTo {
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
   '/admin/mensajes': typeof AdminMensajesRoute
-  '/admin/meta-review': typeof AdminMetaReviewRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
@@ -355,7 +347,6 @@ export interface FileRoutesById {
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
   '/admin/mensajes': typeof AdminMensajesRoute
-  '/admin/meta-review': typeof AdminMetaReviewRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
@@ -399,7 +390,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/mapa-demanda'
     | '/admin/mensajes'
-    | '/admin/meta-review'
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
@@ -437,7 +427,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/mapa-demanda'
     | '/admin/mensajes'
-    | '/admin/meta-review'
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
@@ -479,7 +468,6 @@ export interface FileRouteTypes {
     | '/admin/login'
     | '/admin/mapa-demanda'
     | '/admin/mensajes'
-    | '/admin/meta-review'
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
@@ -669,13 +657,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMensajesRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/meta-review': {
-      id: '/admin/meta-review'
-      path: '/meta-review'
-      fullPath: '/admin/meta-review'
-      preLoaderRoute: typeof AdminMetaReviewRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/notificaciones': {
       id: '/admin/notificaciones'
       path: '/notificaciones'
@@ -828,7 +809,6 @@ interface AdminRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   AdminMapaDemandaRoute: typeof AdminMapaDemandaRoute
   AdminMensajesRoute: typeof AdminMensajesRoute
-  AdminMetaReviewRoute: typeof AdminMetaReviewRoute
   AdminNotificacionesRoute: typeof AdminNotificacionesRoute
   AdminPreciosRoute: typeof AdminPreciosRoute
   AdminReservasRoute: typeof AdminReservasRoute
@@ -854,7 +834,6 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   AdminMapaDemandaRoute: AdminMapaDemandaRoute,
   AdminMensajesRoute: AdminMensajesRoute,
-  AdminMetaReviewRoute: AdminMetaReviewRoute,
   AdminNotificacionesRoute: AdminNotificacionesRoute,
   AdminPreciosRoute: AdminPreciosRoute,
   AdminReservasRoute: AdminReservasRoute,

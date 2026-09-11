@@ -89,6 +89,3 @@ verify_jwt = false
 
 [functions.send-operator-reminder-push]
 verify_jwt = false
-
-[functions.meta-whatsapp-management]
-verify_jwt = true

@@ -18,7 +18,6 @@ import {
   Bot,
   Cog,
   ImageIcon,
-  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -64,7 +63,6 @@ const config: NavItem[] = [
   { title: "WhatsApp Config", to: "/admin/whatsapp-config", icon: MessageCircle },
   { title: "Botmaker", to: "/admin/botmaker", icon: Bot },
   { title: "Agente WhatsApp", to: "/admin/agente-whatsapp", icon: Sparkles },
-  { title: "Meta Review", to: "/admin/meta-review", icon: ShieldCheck },
   { title: "App Config", to: "/admin/app-config", icon: Cog },
   { title: "Configuración", to: "/admin/configuracion", icon: Settings },
 ];
