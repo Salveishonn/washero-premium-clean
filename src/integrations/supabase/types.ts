@@ -962,6 +962,27 @@ export type Database = {
           },
         ];
       };
+      whatsapp_conversation_state: {
+        Row: {
+          customer_phone: string;
+          data: Json;
+          state: string;
+          updated_at: string;
+        };
+        Insert: {
+          customer_phone: string;
+          data?: Json;
+          state?: string;
+          updated_at?: string;
+        };
+        Update: {
+          customer_phone?: string;
+          data?: Json;
+          state?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       rate_limit_counters: {
         Row: {
           count: number;

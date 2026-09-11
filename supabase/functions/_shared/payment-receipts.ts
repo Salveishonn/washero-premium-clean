@@ -239,9 +239,12 @@ export async function ensurePaymentReceiptsBucket(admin: SupabaseClient): Promis
 async function downloadReceiptMedia(mediaUrl: string): Promise<
   { bytes: Uint8Array; contentType: string } | null
 > {
-  const token = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
+  if (!mediaUrl || mediaUrl.startsWith("n8n://")) return null;
+  const cloudToken = (Deno.env.get("WHATSAPP_CLOUD_ACCESS_TOKEN") ?? "").trim();
+  const botmakerToken = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
   const headers: Record<string, string> = {};
-  if (token) headers["access-token"] = token;
+  if (cloudToken) headers["Authorization"] = `Bearer ${cloudToken}`;
+  else if (botmakerToken) headers["access-token"] = botmakerToken;
 
   try {
     const res = await fetch(mediaUrl, { headers, redirect: "follow" });
@@ -265,6 +268,8 @@ export type CapturePaymentReceiptInput = {
   botmakerMessageId?: string | null;
   media: InboundReceiptMedia;
   rawPayload: Record<string, unknown>;
+  /** Optional already-downloaded bytes (n8n Cloud API ingest). */
+  mediaBytes?: Uint8Array;
 };
 
 export async function capturePaymentReceiptFromBotmaker(
@@ -296,7 +301,9 @@ export async function capturePaymentReceiptFromBotmaker(
   let fileSize: number | null = null;
   let uploadOk = false;
 
-  const downloaded = await downloadReceiptMedia(input.media.mediaUrl);
+  const downloaded = input.mediaBytes
+    ? { bytes: input.mediaBytes, contentType: mimeType || "application/octet-stream" }
+    : await downloadReceiptMedia(input.media.mediaUrl);
   if (downloaded) {
     mimeType = mimeType || downloaded.contentType;
     fileSize = downloaded.bytes.byteLength;

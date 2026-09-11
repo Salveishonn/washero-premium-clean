@@ -346,9 +346,9 @@ export function ConversationDetail({
 
         <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
           <p className="font-medium text-foreground mb-1">Responder al cliente</p>
-          <p>Para responder al cliente, abrí esta conversación en Botmaker o WhatsApp Business.</p>
+          <p>Para responder al cliente, usá Enviar WhatsApp en la reserva o el flujo de n8n.</p>
           <Button asChild size="sm" variant="link" className="h-auto p-0 mt-1 text-xs">
-            <Link to="/admin/botmaker">Configuración / diagnóstico Botmaker</Link>
+            <Link to="/admin/whatsapp-config">Configuración WhatsApp</Link>
           </Button>
         </div>
 

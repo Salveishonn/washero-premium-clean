@@ -203,7 +203,7 @@ function MensajesPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <MessageSquare className="h-6 w-6" /> Inbox Botmaker
+            <MessageSquare className="h-6 w-6" /> Inbox WhatsApp
           </h1>
           <p className="text-sm text-muted-foreground">
             Conversaciones, solicitudes de reserva y casos que requieren atención humana.

@@ -34,6 +34,7 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "get_services",
     "get_service_details",
     "validate_service_area",
+    "list_coverage_zones",
     "get_available_dates",
     "get_available_slots",
     "calculate_booking_price",
@@ -42,6 +43,9 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "list_customer_bookings",
     "cancel_booking",
     "reschedule_booking",
+    "get_payment_link",
+    "get_conversation_state",
+    "set_conversation_state",
     "request_human_handoff",
   ];
   const names = AGENT_TOOLS.map((t) => t.name);
@@ -68,6 +72,7 @@ Deno.test(
       "list_customer_bookings",
       "cancel_booking",
       "reschedule_booking",
+      "get_payment_link",
     ]) {
       const tool = findTool(name)!;
       const keys = Object.keys(tool.input_schema.properties);
@@ -319,3 +324,31 @@ Deno.test(
     assertEquals(key, "whatsapp_agent:conv-1:2026-08-01:10:00");
   },
 );
+
+Deno.test("set_conversation_state rejects missing state without touching the DB", async () => {
+  const tool = findTool("set_conversation_state")!;
+  const result = await tool.execute(unreachableAdmin, { data: { misses: 0 } }, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("set_conversation_state dry_run never touches the DB", async () => {
+  const tool = findTool("set_conversation_state")!;
+  const result = await tool.execute(unreachableAdmin, { state: "menu", data: { misses: 0 } }, dryRunCtx);
+  assertEquals(result.ok, true);
+  assertEquals(result.dry_run, true);
+});
+
+Deno.test("get_payment_link rejects missing booking_id without touching the DB", async () => {
+  const tool = findTool("get_payment_link")!;
+  const result = await tool.execute(unreachableAdmin, {}, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("validate_service_area accepts address as an alternative to neighborhood", async () => {
+  const tool = findTool("validate_service_area")!;
+  const result = await tool.execute(unreachableAdmin, { address_type: "street" }, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
