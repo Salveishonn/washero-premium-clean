@@ -568,6 +568,8 @@ function render(st) {
         formatted_address: data.formatted_address || data.address,
         address_lat: data.address_lat,
         address_lng: data.address_lng,
+        coverage_zone_id: data.coverage_zone_id || '',
+        coverage_zone_name: data.coverage_zone_name || '',
         confirmation_message_id: norm.external_message_id || ''
       });
       if (!cb.ok) {

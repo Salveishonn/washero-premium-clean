@@ -184,6 +184,8 @@ try {
     address_lat: inside.body.address_lat,
     address_lng: inside.body.address_lng,
     place_id: inside.body.place_id || undefined,
+    coverage_zone_id: inside.body.coverage_zone_id || undefined,
+    coverage_zone_name: inside.body.coverage_zone_name || undefined,
   };
 
   async function createWithMethod(payment_method, confirmation_message_id) {

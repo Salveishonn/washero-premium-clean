@@ -178,6 +178,8 @@ function listRowIds(json) {
       address_lat: -34.49,
       address_lng: -58.5,
       place_id: "ChIJabc",
+      coverage_zone_id: "z1",
+      coverage_zone_name: "Tigre",
       service_id: "svc1",
       service_name: "Completo",
       vehicle_type: "Auto",
@@ -197,6 +199,8 @@ function listRowIds(json) {
   assert.equal(j.args.place_id, "ChIJabc");
   assert.deepEqual(j.args.selected_extras, ["interior"]);
   assert.equal(j.args.payment_method, "MercadoPago");
+  assert.equal(j.args.coverage_zone_id, "z1");
+  assert.equal(j.args.coverage_zone_name, "Tigre");
 }
 
 {
