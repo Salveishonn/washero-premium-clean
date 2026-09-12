@@ -81,6 +81,22 @@ const report = { url: URL, phone: PHONE, cases: [] };
 
 {
   const r = await call("validate_service_area", {
+    address: "Avenida de los Lagos 1602, Nordelta, Tigre",
+    address_type: "street",
+  });
+  report.cases.push({
+    name: "validate_service_area Nordelta inside",
+    status: r.status,
+    ok: r.body?.ok === true && r.body?.inside_coverage === true,
+    inside_coverage: r.body?.inside_coverage ?? null,
+    coverage_zone_name: r.body?.coverage_zone_name ?? null,
+    formatted_address: r.body?.formatted_address ?? null,
+    has_coords: r.body?.address_lat != null && r.body?.address_lng != null,
+  });
+}
+
+{
+  const r = await call("validate_service_area", {
     address: "Calle Florida 100, Ciudad Autonoma de Buenos Aires",
     address_type: "street",
   });
