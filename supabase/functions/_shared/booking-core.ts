@@ -1320,6 +1320,9 @@ export async function tryCreateBooking(
     payment_method,
     payment_status,
     booking_status,
+    // Must remain in bookings_booking_source_check (migration
+    // 20260722100200_booking_source_whatsapp_agent.sql). Production was missing
+    // that value, so WhatsApp creates failed with a generic server_error.
     booking_source: input.source,
     notes,
     place_id,
