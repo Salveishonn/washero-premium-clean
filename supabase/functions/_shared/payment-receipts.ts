@@ -166,6 +166,31 @@ function phonesMatch(a: string | null | undefined, b: string | null | undefined)
   return tail(na) === tail(nb);
 }
 
+/** Prefer the booking this WhatsApp turn named, including already-paid duplicates. */
+export function pinPreferredTransferBooking(
+  preferred: {
+    id: string;
+    payment_method: string | null;
+    payment_status: string | null;
+    booking_status: string | null;
+    customer_phone: string | null;
+  } | null,
+  phone: string | null,
+): { bookingId: string; receiptStatus: "pending_review" | "approved" } | null {
+  if (!preferred || !phonesMatch(preferred.customer_phone, phone)) return null;
+  if (preferred.payment_method !== "Transferencia") return null;
+  if (preferred.payment_status === "paid") {
+    return { bookingId: preferred.id, receiptStatus: "approved" };
+  }
+  if (
+    preferred.payment_status === "pending" &&
+    ["pending", "needs_review", "confirmed"].includes(String(preferred.booking_status))
+  ) {
+    return { bookingId: preferred.id, receiptStatus: "pending_review" };
+  }
+  return null;
+}
+
 function todayBuenosAiresIso(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 }
@@ -468,15 +493,10 @@ export async function capturePaymentReceiptFromBotmaker(
       .select("id, payment_method, payment_status, booking_status, customer_phone")
       .eq("id", preferredId)
       .maybeSingle();
-    if (
-      preferred &&
-      phonesMatch(preferred.customer_phone, phone) &&
-      preferred.payment_method === "Transferencia" &&
-      preferred.payment_status === "pending" &&
-      ["pending", "needs_review", "confirmed"].includes(String(preferred.booking_status))
-    ) {
-      bookingId = preferred.id;
-      receiptStatus = "pending_review";
+    const pinned = pinPreferredTransferBooking(preferred, phone);
+    if (pinned) {
+      bookingId = pinned.bookingId;
+      receiptStatus = pinned.receiptStatus;
     }
   }
   const folder = bookingId ?? "unresolved";

@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   asPostgresUuid,
   downloadWhatsAppCloudMedia,
+  pinPreferredTransferBooking,
   settleTransferReceiptAsPaid,
   splitReceiptMessageId,
 } from "./payment-receipts.ts";
@@ -129,4 +130,23 @@ Deno.test("splitReceiptMessageId keeps Botmaker uuids off Graph wamid strings", 
     botmakerMessageId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
     externalMessageId: null,
   });
+});
+
+Deno.test("pinPreferredTransferBooking stays on the named booking when it is already paid", () => {
+  const paid = {
+    id: "b1",
+    payment_method: "Transferencia",
+    payment_status: "paid",
+    booking_status: "confirmed",
+    customer_phone: "+54 9 11 0000-0001",
+  };
+  assertEquals(pinPreferredTransferBooking(paid, "5491100000001"), {
+    bookingId: "b1",
+    receiptStatus: "approved",
+  });
+  assertEquals(
+    pinPreferredTransferBooking({ ...paid, payment_status: "pending" }, "5491100000001"),
+    { bookingId: "b1", receiptStatus: "pending_review" },
+  );
+  assertEquals(pinPreferredTransferBooking({ ...paid, payment_method: "MercadoPago" }, "5491100000001"), null);
 });
