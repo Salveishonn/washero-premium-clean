@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { findTool } from "./whatsapp-agent/tools.ts";
 import type { AgentToolContext } from "./whatsapp-agent/tools.ts";
-import { isValidWorkerSecret } from "./whatsapp-agent/worker-auth.ts";
+import { isValidAnyWorkerSecret } from "./whatsapp-agent/worker-auth.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
 import {
   getAssignmentStatus,
@@ -11,7 +11,7 @@ import {
   parseIngestReceiptArgs,
   shouldBotReply,
 } from "./whatsapp-inbox-ingest.ts";
-import { whatsappToolsSecretFromEnv, whatsappToolsSecretFromRequest } from "./whatsapp-cloud.ts";
+import { whatsappToolsSecretFromRequest, whatsappToolsSecretsConfigured } from "./whatsapp-cloud.ts";
 
 export const WHATSAPP_TOOLS_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -104,8 +104,8 @@ export async function handleWhatsAppToolsRequest(req: Request): Promise<Response
   }
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
 
-  const toolsSecret = whatsappToolsSecretFromEnv();
-  if (!(await isValidWorkerSecret(whatsappToolsSecretFromRequest(req), toolsSecret))) {
+  const toolsSecrets = await whatsappToolsSecretsConfigured();
+  if (!(await isValidAnyWorkerSecret(whatsappToolsSecretFromRequest(req), toolsSecrets))) {
     return json({ ok: false, error: "Unauthorized" }, 401);
   }
 

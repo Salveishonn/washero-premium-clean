@@ -75,6 +75,9 @@ export function n8nWhatsAppWebhookSecret(): string {
 }
 
 export function n8nWhatsAppWebhookHeaderName(): string {
+  // Dedicated Washero credential. The live gateway currently still uses the Vuelto
+  // credential header `x-vuelto-outbound-secret`; do not enable N8N_WHATSAPP_WEBHOOK_URL
+  // until n8n has a Washero-only Header Auth (or N8N_WHATSAPP_WEBHOOK_HEADER is set to match).
   return (Deno.env.get("N8N_WHATSAPP_WEBHOOK_HEADER") ?? "x-washero-outbound-secret").trim() ||
     "x-washero-outbound-secret";
 }
@@ -131,10 +134,52 @@ export function whatsappToolsSecretFromEnv(): string {
     .trim();
 }
 
+/** Both env vars are accepted so n8n inbound and existing Botmaker callers can coexist. */
+export function whatsappToolsSecretsFromEnv(): string[] {
+  const out: string[] = [];
+  for (const key of ["WHATSAPP_TOOLS_SECRET", "BOTMAKER_TOOLS_SECRET"] as const) {
+    const value = (Deno.env.get(key) ?? "").trim();
+    if (value && !out.includes(value)) out.push(value);
+  }
+  return out;
+}
+
+export async function fetchVaultEdgeSecret(name: string): Promise<string> {
+  const url = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key || !name.trim()) return "";
+  try {
+    const res = await fetch(`${url}/rest/v1/rpc/get_edge_fn_secret`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_name: name }),
+    });
+    if (!res.ok) return "";
+    const payload = await res.json();
+    return typeof payload === "string" ? payload.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+export async function whatsappToolsSecretsConfigured(): Promise<string[]> {
+  const secrets = whatsappToolsSecretsFromEnv();
+  const vault = await fetchVaultEdgeSecret("whatsapp_tools_secret");
+  if (vault && !secrets.includes(vault)) secrets.push(vault);
+  return secrets;
+}
+
 export function whatsappToolsSecretFromRequest(req: Request): string | null {
-  const wa = req.headers.get("x-whatsapp-tools-secret");
-  if (wa && wa.trim()) return wa;
-  const bm = req.headers.get("x-botmaker-tools-secret");
-  if (bm && bm.trim()) return bm;
+  const extra = (Deno.env.get("WHATSAPP_TOOLS_SECRET_HEADER") ?? "").trim().toLowerCase();
+  const names = ["x-whatsapp-tools-secret", "x-botmaker-tools-secret"];
+  if (extra && !names.includes(extra)) names.unshift(extra);
+  for (const name of names) {
+    const value = req.headers.get(name);
+    if (value && value.trim()) return value.trim();
+  }
   return null;
 }

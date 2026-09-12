@@ -9,6 +9,7 @@ import {
   n8nWhatsAppWebhookUrl,
   toCloudApiRecipient,
   whatsappToolsSecretFromRequest,
+  whatsappToolsSecretsFromEnv,
 } from "./whatsapp-cloud.ts";
 
 Deno.test("Cloud API phone number id is the n8n WhatsApp bot id", () => {
@@ -63,4 +64,19 @@ Deno.test("whatsappToolsSecretFromRequest accepts either tools header", () => {
   });
   assertEquals(whatsappToolsSecretFromRequest(wa), "s1");
   assertEquals(whatsappToolsSecretFromRequest(bm), "s2");
+});
+
+Deno.test("whatsappToolsSecretsFromEnv accepts n8n and Botmaker secrets together", () => {
+  const prevWa = Deno.env.get("WHATSAPP_TOOLS_SECRET");
+  const prevBm = Deno.env.get("BOTMAKER_TOOLS_SECRET");
+  try {
+    Deno.env.set("WHATSAPP_TOOLS_SECRET", "n8n-inbound");
+    Deno.env.set("BOTMAKER_TOOLS_SECRET", "botmaker-legacy");
+    assertEquals(whatsappToolsSecretsFromEnv(), ["n8n-inbound", "botmaker-legacy"]);
+  } finally {
+    if (prevWa == null) Deno.env.delete("WHATSAPP_TOOLS_SECRET");
+    else Deno.env.set("WHATSAPP_TOOLS_SECRET", prevWa);
+    if (prevBm == null) Deno.env.delete("BOTMAKER_TOOLS_SECRET");
+    else Deno.env.set("BOTMAKER_TOOLS_SECRET", prevBm);
+  }
 });
