@@ -91,6 +91,7 @@ function patchWashero(workflow, { switchOutboundIngestCredential = false } = {})
 }
 
 function workflowPutBody(workflow) {
+  // n8n public API rejects read-only fields (meta, id, active, versionId, …).
   return {
     name: workflow.name,
     nodes: workflow.nodes,
@@ -98,21 +99,32 @@ function workflowPutBody(workflow) {
     settings: workflow.settings ?? {},
     staticData: workflow.staticData ?? null,
     pinData: workflow.pinData ?? {},
-    meta: workflow.meta ?? {},
     description: workflow.description ?? "",
   };
 }
 
 async function writeWorkflow(id, workflow) {
   const wasActive = !!workflow.active;
-  if (wasActive) {
+  // PUT-in-place keeps the webhook live. Fall back to deactivate/activate if needed.
+  try {
+    await n8n(`/api/v1/workflows/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(workflowPutBody(workflow)),
+    });
+  } catch (err) {
+    if (!wasActive) throw err;
     await n8n(`/api/v1/workflows/${id}/deactivate`, { method: "POST" });
+    try {
+      await n8n(`/api/v1/workflows/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(workflowPutBody(workflow)),
+      });
+    } finally {
+      await n8n(`/api/v1/workflows/${id}/activate`, { method: "POST" });
+    }
   }
-  await n8n(`/api/v1/workflows/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(workflowPutBody(workflow)),
-  });
-  if (wasActive) {
+  const after = await n8n(`/api/v1/workflows/${id}`);
+  if (wasActive && !after.active) {
     await n8n(`/api/v1/workflows/${id}/activate`, { method: "POST" });
   }
 }
