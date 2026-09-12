@@ -171,6 +171,38 @@ try {
   });
   if (!slot?.start_time) throw new Error("no available slots");
 
+  const extraSlots = (slots.body?.slots || []).slice(1);
+  let mpDate = dateRow.date;
+  let mpTime = extraSlots[0] ? String(extraSlots[0].start_time).slice(0, 5) : null;
+  let trDate = dateRow.date;
+  let trTime = extraSlots[1] ? String(extraSlots[1].start_time).slice(0, 5) : null;
+  if (!mpTime || !trTime) {
+    const otherDate = (dates.body?.dates || []).find((d) =>
+      d.date !== dateRow.date && (Number(d.slots_available) || 0) > 0
+    );
+    if (otherDate?.date) {
+      const more = await call("get_available_slots", {
+        date: otherDate.date,
+        service_id: service.id,
+        vehicle_type: "Auto",
+      });
+      const moreSlots = more.body?.slots || [];
+      if (!mpTime && moreSlots[0]) {
+        mpDate = otherDate.date;
+        mpTime = String(moreSlots[0].start_time).slice(0, 5);
+      }
+      if (!trTime && moreSlots[1]) {
+        trDate = otherDate.date;
+        trTime = String(moreSlots[1].start_time).slice(0, 5);
+      } else if (!trTime && moreSlots[0] && `${otherDate.date}|${String(moreSlots[0].start_time).slice(0, 5)}` !== `${mpDate}|${mpTime}`) {
+        trDate = otherDate.date;
+        trTime = String(moreSlots[0].start_time).slice(0, 5);
+      }
+    }
+  }
+  if (!mpTime) mpTime = String(slot.start_time).slice(0, 5);
+  if (!trTime) trTime = mpTime;
+
   const locked = {
     customer_name: "Smoke Lifecycle",
     address: inside.body.formatted_address || "Avenida de los Lagos 1602, Nordelta",
@@ -188,9 +220,10 @@ try {
     coverage_zone_name: inside.body.coverage_zone_name || undefined,
   };
 
-  async function createWithMethod(payment_method, confirmation_message_id) {
+  async function createWithMethod(payment_method, confirmation_message_id, slotOverride = {}) {
     return call("create_booking", {
       ...locked,
+      ...slotOverride,
       payment_method,
       confirmation_message_id,
     });
@@ -239,7 +272,10 @@ try {
     ok: cancelledLater.status === 200 && cancelledLater.body?.ok === true,
   });
 
-  const mp = await createWithMethod("MercadoPago", `smoke-mp-${Date.now()}`);
+  const mp = await createWithMethod("MercadoPago", `smoke-mp-${Date.now()}`, {
+    scheduled_date: mpDate,
+    scheduled_time: mpTime,
+  });
   const mpId = mp.body?.booking?.id || null;
   if (mpId) createdIds.push(mpId);
   pushCase("create_booking MercadoPago", mp, { booking: slimBooking(mp.body?.booking) });
@@ -256,7 +292,10 @@ try {
     checkout_host: checkout ? new URL(checkout).host : null,
   });
 
-  const tr = await createWithMethod("Transferencia", `smoke-tr-${Date.now()}`);
+  const tr = await createWithMethod("Transferencia", `smoke-tr-${Date.now()}`, {
+    scheduled_date: trDate,
+    scheduled_time: trTime,
+  });
   const trId = tr.body?.booking?.id || null;
   if (trId) createdIds.push(trId);
   pushCase("create_booking Transferencia", tr, { booking: slimBooking(tr.body?.booking) });
