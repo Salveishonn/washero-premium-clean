@@ -49,8 +49,14 @@ const importRe =
   /^import\s*\{([^}]*)\}\s*from\s*"https:\/\/esm\.sh\/@supabase\/supabase-js@[^"]+";\s*/m;
 const importMatch = code.match(importRe);
 const aliasMatch = importMatch?.[1]?.match(/createClient(?:\s+as\s+(\w+))?/);
-const clientAlias = aliasMatch?.[1] || "createClient";
+const bundledAlias = aliasMatch?.[1] || "createClient";
 code = code.replace(importRe, "");
+// Production v9 loaders eval `var gr=globalThis.__waToolsClient;` — pin the
+// minified createClient identifier so a rebuild does not 500 the live function.
+const clientAlias = "gr";
+if (bundledAlias !== clientAlias) {
+  code = code.replace(new RegExp(`\\b${bundledAlias}\\b`, "g"), clientAlias);
+}
 
 const b64 = gzipSync(Buffer.from(code, "utf8"), { level: 9 }).toString("base64");
 writeFileSync(join(outDir, "whatsapp-tools.bundle.js"), code);
