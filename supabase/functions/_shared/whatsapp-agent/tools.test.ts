@@ -33,6 +33,7 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "get_customer_by_phone",
     "get_services",
     "get_service_details",
+    "suggest_addresses",
     "validate_service_area",
     "list_coverage_zones",
     "get_available_dates",
@@ -43,6 +44,7 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "list_customer_bookings",
     "cancel_booking",
     "reschedule_booking",
+    "get_bank_transfer_details",
     "get_payment_link",
     "get_conversation_state",
     "set_conversation_state",
@@ -346,9 +348,56 @@ Deno.test("get_payment_link rejects missing booking_id without touching the DB",
   assertEquals(result.error, "invalid_arguments");
 });
 
-Deno.test("validate_service_area accepts address as an alternative to neighborhood", async () => {
-  const tool = findTool("validate_service_area")!;
-  const result = await tool.execute(unreachableAdmin, { address_type: "street" }, ctx);
+Deno.test("suggest_addresses rejects a short query without calling Google", async () => {
+  const tool = findTool("suggest_addresses")!;
+  const result = await tool.execute(unreachableAdmin, { query: "a" }, ctx);
   assertEquals(result.ok, false);
   assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("suggest_addresses reports places_not_configured when the Maps key is missing", async () => {
+  const prev = Deno.env.get("GOOGLE_MAPS_SERVER_KEY");
+  Deno.env.delete("GOOGLE_MAPS_SERVER_KEY");
+  try {
+    const tool = findTool("suggest_addresses")!;
+    const result = await tool.execute(unreachableAdmin, { query: "Libertador 1500 Martinez" }, ctx);
+    assertEquals(result.ok, false);
+    assertEquals(result.error, "places_not_configured");
+  } finally {
+    if (prev != null) Deno.env.set("GOOGLE_MAPS_SERVER_KEY", prev);
+  }
+});
+
+Deno.test("get_bank_transfer_details reports missing env without touching the DB", async () => {
+  const keys = [
+    "WASHERO_TRANSFER_ALIAS",
+    "WASHERO_TRANSFER_CBU",
+    "WASHERO_TRANSFER_HOLDER",
+    "WASHERO_TRANSFER_BANK",
+  ];
+  const prev = Object.fromEntries(keys.map((k) => [k, Deno.env.get(k)]));
+  for (const k of keys) Deno.env.delete(k);
+  try {
+    const tool = findTool("get_bank_transfer_details")!;
+    const result = await tool.execute(unreachableAdmin, {}, ctx);
+    assertEquals(result.ok, false);
+    assertEquals(result.error, "bank_details_not_configured");
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v != null) Deno.env.set(k, v);
+    }
+  }
+});
+
+Deno.test("get_bank_transfer_details returns alias/CBU when env is set", async () => {
+  Deno.env.set("WASHERO_TRANSFER_ALIAS", "washero.mp");
+  Deno.env.set("WASHERO_TRANSFER_CBU", "0000000000000000000000");
+  Deno.env.set("WASHERO_TRANSFER_HOLDER", "Washero SAS");
+  Deno.env.set("WASHERO_TRANSFER_BANK", "Mercado Pago");
+  const tool = findTool("get_bank_transfer_details")!;
+  const result = await tool.execute(unreachableAdmin, {}, ctx);
+  assertEquals(result.ok, true);
+  assertEquals(result.alias, "washero.mp");
+  assertEquals(result.cbu, "0000000000000000000000");
+  assert(String(result.customer_message).includes("washero.mp"));
 });

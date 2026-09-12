@@ -89,6 +89,17 @@ function str(v: unknown): string {
 function strArray(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 }
+function num(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+function googleMapsKey(): string {
+  return (Deno.env.get("GOOGLE_MAPS_SERVER_KEY") ?? "").trim();
+}
 
 function badArgs(message: string): ToolResult {
   return { ok: false, error: "invalid_arguments", message };
@@ -176,7 +187,21 @@ const getServices: ToolDefinition = {
       .eq("active", true)
       .order("base_price", { ascending: true });
     if (error) return { ok: false, error: "server_error" };
-    return { ok: true, services: data ?? [] };
+    const { data: pricing } = await admin
+      .from("pricing_items")
+      .select("code,name,amount,duration_minutes,type")
+      .eq("active", true)
+      .in("type", ["vehicle_surcharge", "extra"]);
+    const vehicles = (pricing ?? []).filter((p) => p.type === "vehicle_surcharge");
+    const extras = (pricing ?? []).filter((p) => p.type === "extra");
+    return {
+      ok: true,
+      services: data ?? [],
+      vehicles,
+      extras,
+      vehicle_types: VEHICLE_TYPES,
+      payment_methods: PAYMENT_METHODS,
+    };
   },
 };
 
@@ -229,24 +254,30 @@ const getServiceDetails: ToolDefinition = {
 };
 
 // ---------------------------------------------------------------------------
-// validate_service_area
+// Google Geocoding / Places helpers
 // ---------------------------------------------------------------------------
-/** Geocodes a free-text address via Google's classic Geocoding API (no place_id from WhatsApp).
- * Best-effort: returns null on any failure so callers fall back to alias/name text-matching. */
-async function geocodeAddress(
-  address: string,
-): Promise<{ lat: number; lng: number; components: CoverageAddressComponent[] } | null> {
-  const key = Deno.env.get("GOOGLE_MAPS_SERVER_KEY") ?? "";
-  if (!key || !address) return null;
+type GeocodeHit = {
+  lat: number;
+  lng: number;
+  formatted_address: string | null;
+  place_id: string | null;
+  components: CoverageAddressComponent[];
+};
+
+async function geocodeJson(
+  params: Record<string, string>,
+): Promise<GeocodeHit | null> {
+  const key = googleMapsKey();
+  if (!key) return null;
   try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-      `${address}, Zona Norte, Buenos Aires, Argentina`,
-    )}&key=${key}`;
-    const res = await fetch(url);
+    const qs = new URLSearchParams({ ...params, key });
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?${qs}`);
     if (!res.ok) return null;
     const data = (await res.json()) as {
       status?: string;
       results?: Array<{
+        place_id?: string;
+        formatted_address?: string;
         geometry?: { location?: { lat: number; lng: number } };
         address_components?: Array<{ long_name: string; short_name: string; types: string[] }>;
       }>;
@@ -256,6 +287,8 @@ async function geocodeAddress(
     return {
       lat: top.geometry.location.lat,
       lng: top.geometry.location.lng,
+      formatted_address: top.formatted_address ?? null,
+      place_id: top.place_id ?? null,
       components: (top.address_components ?? []) as CoverageAddressComponent[],
     };
   } catch (e) {
@@ -263,6 +296,92 @@ async function geocodeAddress(
     return null;
   }
 }
+
+/** Free-text address via Geocoding API. Best-effort; null on failure. */
+async function geocodeAddress(address: string): Promise<GeocodeHit | null> {
+  if (!address) return null;
+  return await geocodeJson({
+    address: `${address}, Zona Norte, Buenos Aires, Argentina`,
+  });
+}
+
+async function geocodePlaceId(placeId: string): Promise<GeocodeHit | null> {
+  if (!placeId) return null;
+  return await geocodeJson({ place_id: placeId });
+}
+
+async function reverseGeocode(lat: number, lng: number): Promise<GeocodeHit | null> {
+  return await geocodeJson({ latlng: `${lat},${lng}` });
+}
+
+// ---------------------------------------------------------------------------
+// suggest_addresses
+// ---------------------------------------------------------------------------
+const suggestAddresses: ToolDefinition = {
+  name: "suggest_addresses",
+  kind: "read_only",
+  description:
+    "Devuelve hasta 5 sugerencias de Google Places para una dirección escrita por el cliente. Usalo antes de validate_service_area cuando el cliente tipeó una calle. Si Places no está disponible, devolvé places_unavailable y geocodificá el texto libre.",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string" } },
+    required: ["query"],
+  },
+  execute: async (_admin, args) => {
+    const query = str(args.query);
+    if (query.length < 2) return badArgs("Falta query.");
+    const key = googleMapsKey();
+    if (!key) return { ok: false, error: "places_not_configured" };
+    try {
+      const qs = new URLSearchParams({
+        input: query,
+        key,
+        language: "es",
+        components: "country:ar",
+        location: "-34.48,-58.55",
+        radius: "40000",
+      });
+      const res = await fetch(
+        `https://maps.googleapis.com/maps/api/place/autocomplete/json?${qs}`,
+      );
+      if (!res.ok) return { ok: false, error: "places_unavailable" };
+      const data = (await res.json()) as {
+        status?: string;
+        error_message?: string;
+        predictions?: Array<{
+          place_id?: string;
+          description?: string;
+          structured_formatting?: { main_text?: string; secondary_text?: string };
+        }>;
+      };
+      if (data.status === "ZERO_RESULTS") return { ok: true, suggestions: [] };
+      if (data.status !== "OK") {
+        return {
+          ok: false,
+          error: "places_unavailable",
+          google_status: data.status ?? null,
+        };
+      }
+      const suggestions = (data.predictions ?? [])
+        .filter((p) => p.place_id && p.description)
+        .slice(0, 5)
+        .map((p) => ({
+          place_id: p.place_id as string,
+          description: p.description as string,
+          main_text: p.structured_formatting?.main_text ?? p.description,
+          secondary_text: p.structured_formatting?.secondary_text ?? "",
+        }));
+      return { ok: true, suggestions };
+    } catch (e) {
+      console.warn("[suggest_addresses] failed", e);
+      return { ok: false, error: "places_unavailable" };
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// validate_service_area
+// ---------------------------------------------------------------------------
 
 const validateServiceArea: ToolDefinition = {
   name: "validate_service_area",
@@ -286,29 +405,51 @@ const validateServiceArea: ToolDefinition = {
         type: "string",
         description: "Nombre del barrio privado/country, si aplica.",
       },
+      private_neighborhood_id: { type: "string" },
+      place_id: { type: "string", description: "place_id de suggest_addresses o Google Places." },
+      lat: { type: "number", description: "Latitud (pin de WhatsApp o Places)." },
+      lng: { type: "number", description: "Longitud (pin de WhatsApp o Places)." },
+      address_lat: { type: "number" },
+      address_lng: { type: "number" },
     },
   },
   execute: async (admin, args) => {
     const neighborhood = str(args.neighborhood);
     const address = str(args.address);
+    const placeId = str(args.place_id);
+    const latArg = num(args.lat) ?? num(args.address_lat);
+    const lngArg = num(args.lng) ?? num(args.address_lng);
     const addressType =
       str(args.address_type) === "private_neighborhood" ? "private_neighborhood" : "street";
 
     if (addressType === "private_neighborhood") {
       const name = str(args.private_neighborhood_name);
-      if (!name) return badArgs("Falta private_neighborhood_name.");
+      const id = str(args.private_neighborhood_id);
+      if (!name && !id) return badArgs("Falta private_neighborhood_name.");
       const { data: rows } = await admin
         .from("private_neighborhoods")
-        .select("id,name,aliases,active,coverage_zone_id,coverage_zone_name")
+        .select(
+          "id,name,aliases,active,coverage_zone_id,coverage_zone_name,lat,lng,formatted_address,canonical_address",
+        )
         .eq("active", true);
       const needle = foldText(name);
       const match = (rows ?? []).find((r) => {
+        if (id && String(r.id) === id) return true;
         const names = [r.name, ...(Array.isArray(r.aliases) ? r.aliases : [])].map((n) =>
           foldText(String(n)),
         );
         return names.some((n) => n === needle || needle.includes(n) || n.includes(needle));
       });
-      if (!match) return { ok: true, inside_coverage: false, match_type: "none" };
+      if (!match) {
+        return {
+          ok: true,
+          inside_coverage: false,
+          match_type: "none",
+          formatted_address: null,
+          address_lat: null,
+          address_lng: null,
+        };
+      }
       return {
         ok: true,
         inside_coverage: true,
@@ -317,24 +458,57 @@ const validateServiceArea: ToolDefinition = {
         private_neighborhood_name: match.name,
         coverage_zone_id: match.coverage_zone_id,
         coverage_zone_name: match.coverage_zone_name,
+        formatted_address: match.formatted_address || match.canonical_address || match.name,
+        neighborhood: match.coverage_zone_name || match.name,
+        address_lat: match.lat,
+        address_lng: match.lng,
+        place_id: null,
+        geocoded: false,
       };
     }
 
-    if (!neighborhood && !address) return badArgs("Falta neighborhood o address.");
-    const geo = address ? await geocodeAddress(address) : null;
-    const localityCandidates = geo ? extractLocalityCandidates(geo.components, [neighborhood]) : [];
+    if (!neighborhood && !address && !placeId && (latArg == null || lngArg == null)) {
+      return badArgs("Falta neighborhood, address, place_id o lat/lng.");
+    }
+
+    let geo: GeocodeHit | null = null;
+    if (placeId) geo = await geocodePlaceId(placeId);
+    if (!geo && address) geo = await geocodeAddress(address);
+    if (!geo && latArg != null && lngArg != null) {
+      geo = (await reverseGeocode(latArg, lngArg)) ?? {
+        lat: latArg,
+        lng: lngArg,
+        formatted_address: address || null,
+        place_id: placeId || null,
+        components: [],
+      };
+    }
+
+    const resolvedLat = geo?.lat ?? latArg ?? undefined;
+    const resolvedLng = geo?.lng ?? lngArg ?? undefined;
+    const localityCandidates = extractLocalityCandidates(geo?.components, [neighborhood, address]);
     const zones = await loadActiveZones(admin);
     const match = matchZone(zones, {
-      lat: geo?.lat,
-      lng: geo?.lng,
+      lat: resolvedLat,
+      lng: resolvedLng,
       neighborhood,
       localityCandidates,
     });
+    const resolvedNeighborhood =
+      neighborhood ||
+      localityCandidates[0] ||
+      match.zone?.name ||
+      "";
     return {
       ok: true,
       inside_coverage: !!match.zone,
       match_type: match.match_type,
       geocoded: !!geo,
+      formatted_address: geo?.formatted_address ?? (address || null),
+      neighborhood: resolvedNeighborhood || null,
+      address_lat: resolvedLat ?? null,
+      address_lng: resolvedLng ?? null,
+      place_id: geo?.place_id ?? (placeId || null),
       coverage_zone_id: match.zone?.id ?? null,
       coverage_zone_name: match.zone?.name ?? null,
     };
@@ -629,6 +803,10 @@ const createBooking: ToolDefinition = {
       scheduled_date: { type: "string", description: "YYYY-MM-DD" },
       scheduled_time: { type: "string", description: "HH:MM" },
       payment_method: { type: "string", enum: PAYMENT_METHODS as unknown as string[] },
+      place_id: { type: "string" },
+      formatted_address: { type: "string" },
+      address_lat: { type: "number" },
+      address_lng: { type: "number" },
       confirmation_message_id: {
         type: "string",
         description:
@@ -691,6 +869,10 @@ const createBooking: ToolDefinition = {
         str(args.address_type) === "private_neighborhood" ? "private_neighborhood" : "street",
       private_neighborhood_id: str(args.private_neighborhood_id) || null,
       private_lot: str(args.private_lot) || null,
+      place_id: str(args.place_id) || null,
+      formatted_address: str(args.formatted_address) || null,
+      address_lat: num(args.address_lat),
+      address_lng: num(args.address_lng),
       vehicle_type: str(args.vehicle_type),
       service_id: str(args.service_id),
       scheduled_date,
@@ -700,7 +882,7 @@ const createBooking: ToolDefinition = {
       booking_units,
       source: "whatsapp_agent",
       is_test: ctx.isTest,
-      enforce_coverage: false,
+      enforce_coverage: true,
       idempotency_key: idempotencyKey,
       notes: `Reserva creada por el agente de WhatsApp. Conversación: ${ctx.conversationId}`,
     });
@@ -845,16 +1027,88 @@ const listCoverageZones: ToolDefinition = {
     const zones = await loadActiveZones(admin);
     const { data: privateNeighborhoods } = await admin
       .from("private_neighborhoods")
-      .select("name")
+      .select("id,name")
       .eq("active", true)
       .order("name");
+    const privateRows = (privateNeighborhoods ?? []) as Array<{ id: string; name: string }>;
     return {
       ok: true,
       zones: zones
         .slice()
         .sort((a, b) => a.display_order - b.display_order)
         .map((z) => z.name),
-      private_neighborhoods: (privateNeighborhoods ?? []).map((r) => (r as { name: string }).name),
+      private_neighborhoods: privateRows.map((r) => r.name),
+      private_neighborhood_list: privateRows.map((r) => ({ id: r.id, name: r.name })),
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// get_bank_transfer_details
+// ---------------------------------------------------------------------------
+function loadTransferBankDetails(): {
+  alias: string;
+  cbu: string;
+  holder: string;
+  bank: string;
+} | null {
+  const alias = (Deno.env.get("WASHERO_TRANSFER_ALIAS") ?? "").trim();
+  const cbu = (Deno.env.get("WASHERO_TRANSFER_CBU") ?? "").trim();
+  const holder = (Deno.env.get("WASHERO_TRANSFER_HOLDER") ?? "").trim();
+  const bank = (Deno.env.get("WASHERO_TRANSFER_BANK") ?? "").trim();
+  if (!alias || !cbu || !holder || !bank) return null;
+  return { alias, cbu, holder, bank };
+}
+
+const getBankTransferDetails: ToolDefinition = {
+  name: "get_bank_transfer_details",
+  kind: "read_only",
+  description:
+    "Devuelve alias/CBU/titular/banco para Transferencia. Llamalo después de create_booking cuando el cliente eligió Transferencia, y mandale esos datos + pedile el comprobante.",
+  input_schema: {
+    type: "object",
+    properties: {
+      booking_id: { type: "string" },
+    },
+  },
+  execute: async (admin, args, ctx) => {
+    const bank = loadTransferBankDetails();
+    if (!bank) return { ok: false, error: "bank_details_not_configured" };
+    const booking_id = str(args.booking_id);
+    let amount: number | null = null;
+    let scheduled_date: string | null = null;
+    let scheduled_time: string | null = null;
+    if (booking_id) {
+      const { data: booking } = await admin
+        .from("bookings")
+        .select("id,price,scheduled_date,scheduled_time,customer_phone")
+        .eq("id", booking_id)
+        .eq("customer_phone", ctx.customerPhone)
+        .maybeSingle();
+      if (booking) {
+        amount = Number(booking.price) || null;
+        scheduled_date = booking.scheduled_date ?? null;
+        scheduled_time = booking.scheduled_time ?? null;
+      }
+    }
+    const amountLine = amount
+      ? new Intl.NumberFormat("es-AR", {
+        style: "currency",
+        currency: "ARS",
+        maximumFractionDigits: 0,
+      }).format(amount)
+      : null;
+    return {
+      ok: true,
+      ...bank,
+      amount,
+      amount_formatted: amountLine,
+      scheduled_date,
+      scheduled_time,
+      customer_message:
+        `Para confirmar tu reserva Washero, transferí${amountLine ? ` *${amountLine}*` : ""}:\n\n` +
+        `*Alias:* ${bank.alias}\n*CBU/CVU:* ${bank.cbu}\n*Titular:* ${bank.holder}\n*Banco/billetera:* ${bank.bank}\n\n` +
+        `Respondé este chat con la foto o PDF del comprobante.`,
     };
   },
 };
@@ -1053,6 +1307,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   getCustomerByPhone,
   getServices,
   getServiceDetails,
+  suggestAddresses,
   validateServiceArea,
   listCoverageZones,
   getAvailableDates,
@@ -1063,6 +1318,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   listCustomerBookings,
   cancelBooking,
   rescheduleBooking,
+  getBankTransferDetails,
   getPaymentLink,
   getConversationState,
   setConversationState,

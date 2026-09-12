@@ -45,3 +45,16 @@ Deno.test("parseIngestReceiptArgs reads media_url and message_id aliases", () =>
   assertEquals(parsed.message_id, "wamid.R");
   assertEquals(parsed.message_type, "image");
 });
+
+Deno.test("parseIngestReceiptArgs reads media_id and booking_id for Graph ingest", () => {
+  const parsed = parseIngestReceiptArgs({
+    media_id: "MEDIA123",
+    booking_id: "bk-1",
+    message_type: "image",
+    mime_type: "image/jpeg",
+  });
+  assertEquals(parsed.media_id, "MEDIA123");
+  assertEquals(parsed.booking_id, "bk-1");
+  assertEquals(parsed.media_url, null);
+  assertEquals(parsed.mime_type, "image/jpeg");
+});

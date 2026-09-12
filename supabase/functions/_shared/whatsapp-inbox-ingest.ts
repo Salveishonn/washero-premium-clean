@@ -7,6 +7,7 @@ import {
 } from "./botmaker-inbound-routing.ts";
 import {
   capturePaymentReceiptFromBotmaker,
+  downloadWhatsAppCloudMedia,
   isReceiptLikeMedia,
   type InboundReceiptMedia,
 } from "./payment-receipts.ts";
@@ -222,11 +223,13 @@ export async function ingestWhatsAppMessage(
 export type IngestReceiptArgs = {
   media_url: string | null;
   media_base64: string | null;
+  media_id: string | null;
   mime_type: string | null;
   file_name: string | null;
   message_type: string;
   message_id: string | null;
   caption: string | null;
+  booking_id: string | null;
   raw_payload: Record<string, unknown>;
 };
 
@@ -234,14 +237,17 @@ export function parseIngestReceiptArgs(raw: Record<string, unknown> | null | und
   const args = raw ?? {};
   const mediaUrl = String(args.media_url ?? "").trim() || null;
   const mediaBase64 = String(args.media_base64 ?? args.media_bytes ?? "").trim() || null;
+  const mediaId = String(args.media_id ?? args.whatsapp_media_id ?? "").trim() || null;
   return {
     media_url: mediaUrl,
     media_base64: mediaBase64,
+    media_id: mediaId,
     mime_type: String(args.mime_type ?? "").trim() || null,
     file_name: String(args.file_name ?? "").trim() || null,
     message_type: String(args.message_type ?? "document").trim() || "document",
     message_id: String(args.message_id ?? args.external_message_id ?? "").trim() || null,
     caption: String(args.caption ?? "").trim() || null,
+    booking_id: String(args.booking_id ?? "").trim() || null,
     raw_payload: args,
   };
 }
@@ -261,36 +267,70 @@ function decodeBase64Bytes(value: string): Uint8Array | null {
 export async function ingestWhatsAppReceipt(
   admin: SupabaseClient,
   input: { phone: string; args: IngestReceiptArgs },
-): Promise<{ ok: boolean; receipt_id?: string; duplicate?: boolean; error?: string }> {
-  const { media_url, media_base64, mime_type, file_name, message_type, message_id, caption, raw_payload } =
-    input.args;
-  if (!media_url && !media_base64) {
+): Promise<{
+  ok: boolean;
+  receipt_id?: string;
+  booking_id?: string | null;
+  receipt_status?: string | null;
+  paid?: boolean;
+  invoice?: { ok: boolean; channel?: string | null; error?: string | null };
+  duplicate?: boolean;
+  error?: string;
+}> {
+  const {
+    media_url,
+    media_base64,
+    media_id,
+    mime_type,
+    file_name,
+    message_type,
+    message_id,
+    caption,
+    booking_id,
+    raw_payload,
+  } = input.args;
+  if (!media_url && !media_base64 && !media_id) {
     return { ok: false, error: "missing_media" };
   }
   if (!isReceiptLikeMedia(message_type, mime_type, file_name)) {
     return { ok: false, error: "not_receipt_like" };
   }
 
+  let bytes = media_base64 ? decodeBase64Bytes(media_base64) : null;
+  let mimeType = mime_type;
+  let mediaUrl = media_url;
+  if (!bytes && media_id) {
+    const downloaded = await downloadWhatsAppCloudMedia(media_id);
+    if (!downloaded) return { ok: false, error: "graph_media_download_failed" };
+    bytes = downloaded.bytes;
+    mimeType = mimeType || downloaded.contentType;
+    mediaUrl = mediaUrl || downloaded.url;
+  }
+
   const media: InboundReceiptMedia = {
     messageType: message_type,
-    mediaUrl: media_url ?? "n8n://inline",
-    mimeType: mime_type,
+    mediaUrl: mediaUrl ?? (media_id ? `graph://${media_id}` : "n8n://inline"),
+    mimeType,
     fileName: file_name,
     caption,
   };
-  const bytes = media_base64 ? decodeBase64Bytes(media_base64) : null;
   const result = await capturePaymentReceiptFromBotmaker(admin, {
     phone: input.phone,
     customerPhoneNormalized: normalizeArgentinaWhatsAppPhone(input.phone),
     botmakerMessageId: message_id,
     media,
-    rawPayload: { ...raw_payload, source: "n8n_cloud" },
+    rawPayload: { ...raw_payload, source: "n8n_cloud", media_id, booking_id },
     mediaBytes: bytes ?? undefined,
+    preferredBookingId: booking_id,
   });
   if (!result.ok) return { ok: false, error: result.error ?? "server_error" };
   return {
     ok: true,
     receipt_id: result.receiptId,
+    booking_id: result.bookingId ?? null,
+    receipt_status: result.receiptStatus ?? null,
+    paid: !!result.paid,
+    invoice: result.invoice,
     duplicate: result.error === "duplicate_message",
   };
 }

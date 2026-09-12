@@ -2,6 +2,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pick, normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
+import { scheduleBookingConfirmedWhatsApp } from "./whatsapp-automation.ts";
+import { deliverInvoiceForBooking } from "./invoice-delivery.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";
 
@@ -236,11 +238,15 @@ export async function ensurePaymentReceiptsBucket(admin: SupabaseClient): Promis
   }
 }
 
+function whatsappCloudAccessToken(): string {
+  return (Deno.env.get("WHATSAPP_CLOUD_ACCESS_TOKEN") ?? "").trim();
+}
+
 async function downloadReceiptMedia(mediaUrl: string): Promise<
   { bytes: Uint8Array; contentType: string } | null
 > {
-  if (!mediaUrl || mediaUrl.startsWith("n8n://")) return null;
-  const cloudToken = (Deno.env.get("WHATSAPP_CLOUD_ACCESS_TOKEN") ?? "").trim();
+  if (!mediaUrl || mediaUrl.startsWith("n8n://") || mediaUrl.startsWith("graph://")) return null;
+  const cloudToken = whatsappCloudAccessToken();
   const botmakerToken = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
   const headers: Record<string, string> = {};
   if (cloudToken) headers["Authorization"] = `Bearer ${cloudToken}`;
@@ -262,6 +268,38 @@ async function downloadReceiptMedia(mediaUrl: string): Promise<
   }
 }
 
+/** Graph Cloud API: GET /{media-id} then GET the returned URL with the same bearer. */
+export async function downloadWhatsAppCloudMedia(mediaId: string): Promise<
+  { bytes: Uint8Array; contentType: string; url: string } | null
+> {
+  const id = mediaId.trim();
+  const token = whatsappCloudAccessToken();
+  if (!id || !token) return null;
+  try {
+    const metaRes = await fetch(
+      `https://graph.facebook.com/v20.0/${encodeURIComponent(id)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!metaRes.ok) {
+      console.error("[payment-receipts] graph media meta failed", metaRes.status, id);
+      return null;
+    }
+    const meta = await metaRes.json() as { url?: string; mime_type?: string };
+    const url = String(meta.url ?? "").trim();
+    if (!url) return null;
+    const downloaded = await downloadReceiptMedia(url);
+    if (!downloaded) return null;
+    return {
+      bytes: downloaded.bytes,
+      contentType: meta.mime_type || downloaded.contentType,
+      url,
+    };
+  } catch (e) {
+    console.error("[payment-receipts] graph media exception", e);
+    return null;
+  }
+}
+
 export type CapturePaymentReceiptInput = {
   phone: string | null;
   customerPhoneNormalized?: string | null;
@@ -270,26 +308,139 @@ export type CapturePaymentReceiptInput = {
   rawPayload: Record<string, unknown>;
   /** Optional already-downloaded bytes (n8n Cloud API ingest). */
   mediaBytes?: Uint8Array;
+  /** Pin match to the booking this WhatsApp turn is collecting a receipt for. */
+  preferredBookingId?: string | null;
 };
+
+export type CapturePaymentReceiptResult = {
+  ok: boolean;
+  receiptId?: string;
+  bookingId?: string | null;
+  receiptStatus?: string | null;
+  paid?: boolean;
+  invoice?: { ok: boolean; channel?: string | null; error?: string | null };
+  error?: string;
+};
+
+export async function settleTransferReceiptAsPaid(
+  admin: SupabaseClient,
+  opts: { receiptId: string; bookingId: string; notes?: string },
+): Promise<{
+  ok: boolean;
+  paid: boolean;
+  already_paid: boolean;
+  invoice?: { ok: boolean; channel?: string | null; error?: string | null };
+  error?: string;
+}> {
+  const now = new Date().toISOString();
+  const { data: bookingBefore } = await admin
+    .from("bookings")
+    .select("id, booking_status, payment_status, price")
+    .eq("id", opts.bookingId)
+    .maybeSingle();
+  if (!bookingBefore) return { ok: false, paid: false, already_paid: false, error: "booking_not_found" };
+
+  const wasAlreadyPaid = bookingBefore.payment_status === "paid";
+  const wasAlreadyConfirmed = bookingBefore.booking_status === "confirmed";
+
+  const bookingUpdate: Record<string, unknown> = {
+    payment_status: "paid",
+    updated_at: now,
+  };
+  if (["pending", "needs_review"].includes(bookingBefore.booking_status)) {
+    bookingUpdate.booking_status = "confirmed";
+  }
+
+  if (!wasAlreadyPaid) {
+    const { error: bookingErr } = await admin
+      .from("bookings")
+      .update(bookingUpdate)
+      .eq("id", opts.bookingId);
+    if (bookingErr) return { ok: false, paid: false, already_paid: false, error: "booking_update_failed" };
+
+    await admin.from("payments").insert({
+      booking_id: opts.bookingId,
+      provider: "manual",
+      amount: bookingBefore.price ?? 0,
+      status: "paid",
+      raw_payload: {
+        reason: "transfer_receipt_auto_whatsapp",
+        payment_receipt_id: opts.receiptId,
+      },
+    });
+  }
+
+  const { error: receiptErr } = await admin
+    .from("payment_receipts")
+    .update({
+      status: "approved",
+      reviewed_at: now,
+      notes: opts.notes ?? "auto_from_whatsapp",
+      updated_at: now,
+    })
+    .eq("id", opts.receiptId);
+  if (receiptErr) return { ok: false, paid: wasAlreadyPaid, already_paid: wasAlreadyPaid, error: "receipt_update_failed" };
+
+  if (!(wasAlreadyConfirmed && wasAlreadyPaid) && Deno.env.get("WASHERO_SKIP_RECEIPT_NOTIFY") !== "1") {
+    scheduleBookingConfirmedWhatsApp(admin, opts.bookingId);
+  }
+  const invoice = await deliverInvoiceForBooking(admin, opts.bookingId).catch((e) => {
+    console.error("[payment-receipts] invoice delivery", e);
+    return { ok: false, invoice_id: null, channel: "none" as const, error: String(e) };
+  });
+  return {
+    ok: true,
+    paid: true,
+    already_paid: wasAlreadyPaid,
+    invoice: { ok: invoice.ok, channel: invoice.channel ?? null, error: invoice.error ?? null },
+  };
+}
 
 export async function capturePaymentReceiptFromBotmaker(
   admin: SupabaseClient,
   input: CapturePaymentReceiptInput,
-): Promise<{ ok: boolean; receiptId?: string; error?: string }> {
+): Promise<CapturePaymentReceiptResult> {
   if (input.botmakerMessageId) {
     const { data: dup } = await admin
       .from("payment_receipts")
-      .select("id")
+      .select("id,booking_id,status")
       .eq("botmaker_message_id", input.botmakerMessageId)
       .maybeSingle();
-    if (dup?.id) return { ok: true, receiptId: dup.id, error: "duplicate_message" };
+    if (dup?.id) {
+      return {
+        ok: true,
+        receiptId: dup.id,
+        bookingId: dup.booking_id ?? null,
+        receiptStatus: dup.status ?? null,
+        paid: dup.status === "approved",
+        error: "duplicate_message",
+      };
+    }
   }
 
   const phone = input.customerPhoneNormalized ??
     normalizeArgentinaWhatsAppPhone(input.phone) ??
     normalizePhone(input.phone);
 
-  const { bookingId, receiptStatus } = await matchTransferBookingForReceipt(admin, phone);
+  let { bookingId, receiptStatus } = await matchTransferBookingForReceipt(admin, phone);
+  const preferredId = (input.preferredBookingId ?? "").trim();
+  if (preferredId) {
+    const { data: preferred } = await admin
+      .from("bookings")
+      .select("id, payment_method, payment_status, booking_status, customer_phone")
+      .eq("id", preferredId)
+      .maybeSingle();
+    if (
+      preferred &&
+      phonesMatch(preferred.customer_phone, phone) &&
+      preferred.payment_method === "Transferencia" &&
+      preferred.payment_status === "pending" &&
+      ["pending", "needs_review", "confirmed"].includes(String(preferred.booking_status))
+    ) {
+      bookingId = preferred.id;
+      receiptStatus = "pending_review";
+    }
+  }
   const folder = bookingId ?? "unresolved";
   const timestamp = Date.now();
   const fileName = safeFileName(input.media.fileName, input.media.mimeType);
@@ -351,5 +502,25 @@ export async function capturePaymentReceiptFromBotmaker(
     return { ok: false, error: "insert_failed" };
   }
 
-  return { ok: true, receiptId: inserted.id };
+  const captured: CapturePaymentReceiptResult = {
+    ok: true,
+    receiptId: inserted.id,
+    bookingId,
+    receiptStatus,
+  };
+  if (bookingId && receiptStatus === "pending_review") {
+    const settled = await settleTransferReceiptAsPaid(admin, {
+      receiptId: inserted.id,
+      bookingId,
+      notes: "auto_from_whatsapp",
+    });
+    return {
+      ...captured,
+      receiptStatus: settled.ok ? "approved" : receiptStatus,
+      paid: settled.paid,
+      invoice: settled.invoice,
+      error: settled.ok ? undefined : settled.error,
+    };
+  }
+  return captured;
 }
