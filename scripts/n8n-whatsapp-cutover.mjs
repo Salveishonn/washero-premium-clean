@@ -13,7 +13,8 @@ const KEY = process.env.N8N_API_KEY || "";
 const APPLY = process.argv.includes("--apply");
 const PROD = "https://domslcbxgqbylmciqrxt.supabase.co/functions/v1/whatsapp-tools";
 const LEGACY_HOST = "apiwashero.flynnpedroa.engineer";
-const INBOUND_AUTH = { id: "DHxWaDoMvPTw5sjQ", name: "Inbound Auth" };
+// Dedicated Header Auth: x-whatsapp-tools-secret. Do not reuse Vuelto credential DHxWaDoMvPTw5sjQ.
+const WASHERO_TOOLS_AUTH = { id: "l2vi2sGgGMJmUekW", name: "Washero whatsapp-tools" };
 
 const WASHERO_WORKFLOWS = {
   inbound: "NWK9Nqajvkt35Zso",
@@ -58,31 +59,28 @@ function httpUrls(workflow) {
     .map((n) => ({
       name: n.name,
       url: n.parameters?.url || "",
-      credential: n.credentials?.httpHeaderAuth?.name || n.credentials?.httpHeaderAuth?.id || "",
+      credentialId: n.credentials?.httpHeaderAuth?.id || n.credentials?.whatsAppApi?.id || "",
+      credential: n.credentials?.httpHeaderAuth?.name || n.credentials?.whatsAppApi?.name || "",
     }));
 }
 
-function isLegacyToolsUrl(url) {
-  return typeof url === "string" && url.includes(LEGACY_HOST) && url.includes("whatsapp-tools");
+function isToolsUrl(url) {
+  return typeof url === "string" && url.includes("whatsapp-tools");
 }
 
-function patchWashero(workflow, { switchOutboundIngestCredential = false } = {}) {
+function patchWashero(workflow) {
   let urlChanges = 0;
   let credentialChanges = 0;
   for (const node of workflow.nodes || []) {
     if (!String(node.type || "").includes("httpRequest")) continue;
-    if (isLegacyToolsUrl(node.parameters?.url)) {
+    if (isToolsUrl(node.parameters?.url) && node.parameters.url !== PROD) {
       node.parameters.url = PROD;
       urlChanges += 1;
     }
-    if (
-      switchOutboundIngestCredential &&
-      node.name === "Ingest Outbound Message" &&
-      node.credentials?.httpHeaderAuth?.id !== INBOUND_AUTH.id
-    ) {
+    if (isToolsUrl(node.parameters?.url) && node.credentials?.httpHeaderAuth?.id !== WASHERO_TOOLS_AUTH.id) {
       node.credentials = {
         ...(node.credentials || {}),
-        httpHeaderAuth: { ...INBOUND_AUTH },
+        httpHeaderAuth: { ...WASHERO_TOOLS_AUTH },
       };
       credentialChanges += 1;
     }
@@ -143,6 +141,8 @@ try {
 const report = {
   apply: APPLY,
   productionToolsUrl: PROD,
+  legacyHost: LEGACY_HOST,
+  washeroToolsCredential: WASHERO_TOOLS_AUTH,
   before: {
     washero: { inbound: httpUrls(inbound), outbound: httpUrls(outbound) },
     vuelto: {
@@ -153,7 +153,7 @@ const report = {
 };
 
 const inboundPatch = patchWashero(inbound);
-const outboundPatch = patchWashero(outbound, { switchOutboundIngestCredential: true });
+const outboundPatch = patchWashero(outbound);
 report.pendingChanges = { inbound: inboundPatch, outbound: outboundPatch };
 
 if (APPLY) {
