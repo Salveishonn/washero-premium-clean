@@ -199,4 +199,97 @@ function listRowIds(json) {
   assert.equal(j.args.payment_method, "MercadoPago");
 }
 
+{
+  const j = run({
+    state: "confirm",
+    data: {
+      misses: 0,
+      payment_method: "MercadoPago",
+      service_name: "Completo",
+      vehicle_type: "Auto",
+      scheduled_date: "2026-09-20",
+      scheduled_time: "10:00",
+      address: "X",
+      price: 30000,
+    },
+    results: [{
+      tool: "create_booking",
+      result: { ok: true, booking: { id: "bk-mp", service_name: "Completo", vehicle_type: "Auto", scheduled_date: "2026-09-20", scheduled_time: "10:00", address: "X", price: 30000 } },
+    }],
+    norm: { message_type: "interactive", reply_id: "cf:yes", reply_title: "Confirmar" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "get_payment_link");
+  assert.equal(j.args.booking_id, "bk-mp");
+}
+
+{
+  const j = run({
+    state: "await_receipt",
+    data: { awaiting_receipt: true, booking_id: "bk-99", misses: 0 },
+    results: [{
+      tool: "ingest_receipt",
+      result: { ok: true, paid: true, receipt_status: "approved" },
+    }],
+    norm: { message_type: "image", media_id: "MEDIA99", mime_type: "image/jpeg" },
+  });
+  assert.equal(j.action, "reply");
+  assert.equal(j.next_state, "none");
+  assert.equal(String(j.log_text).toLowerCase().includes("pagada"), true);
+}
+
+{
+  const j = run({
+    state: "menu",
+    data: { misses: 0 },
+    norm: { message_type: "interactive", reply_id: "menu:reservas", reply_title: "Mis reservas" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "list_customer_bookings");
+}
+
+{
+  const j = run({
+    state: "rtime",
+    data: { sel_booking_id: "bk-1", new_date: "2026-09-22", new_time: "11:00", misses: 0 },
+    norm: { message_type: "interactive", reply_id: "time:11:00", reply_title: "11:00 hs" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "reschedule_booking");
+  assert.equal(j.args.booking_id, "bk-1");
+  assert.equal(j.args.new_date, "2026-09-22");
+  assert.equal(j.args.new_time, "11:00");
+}
+
+{
+  const j = run({
+    state: "cxlconf",
+    data: { sel_booking_id: "bk-1", misses: 0 },
+    norm: { message_type: "interactive", reply_id: "cf:yes", reply_title: "Sí, cancelar" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "cancel_booking");
+  assert.equal(j.args.booking_id, "bk-1");
+}
+
+{
+  const j = run({
+    state: "menu",
+    data: { misses: 0 },
+    norm: { message_type: "interactive", reply_id: "menu:zonas", reply_title: "Cobertura" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "list_coverage_zones");
+}
+
+{
+  const j = run({
+    state: "menu",
+    data: { misses: 0 },
+    norm: { message_type: "interactive", reply_id: "menu:servicios", reply_title: "Precios" },
+  });
+  assert.equal(j.action, "call");
+  assert.equal(j.tool, "get_services");
+}
+
 console.log("n8n-washero-flow-router.test.mjs: ok");
