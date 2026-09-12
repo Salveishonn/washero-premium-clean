@@ -23,7 +23,7 @@ function actionErrorMessage(status?: string, message?: string) {
     return "No podés enviar mensajes para esta reserva.";
   }
   if (status === "template_not_configured") {
-    return message ?? "Plantilla Botmaker no configurada.";
+    return message ?? "Plantilla WhatsApp no configurada.";
   }
   return message ?? "No pudimos enviar el WhatsApp. Revisá notificaciones/admin.";
 }
@@ -136,7 +136,7 @@ export function OperatorWhatsappActions({
   const content = (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Mensajes preaprobados vía Botmaker. No se envía texto libre desde la app.
+        Mensajes preaprobados vía WhatsApp. No se envía texto libre desde la app.
       </p>
 
       {showEtaPicker ? (

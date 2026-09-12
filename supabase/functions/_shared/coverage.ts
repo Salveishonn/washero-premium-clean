@@ -183,6 +183,67 @@ export function matchZone(
   return { zone: null, match_type: "none", distance_km: null };
 }
 
+/** Comma-split formatted addresses so "…, Tigre, Argentina" can alias-match. */
+export function localityCandidatesFromText(
+  ...values: Array<string | null | undefined>
+): string[] {
+  const extras: string[] = [];
+  for (const value of values) {
+    const raw = String(value ?? "").trim();
+    if (!raw) continue;
+    extras.push(raw);
+    for (const part of raw.split(",")) {
+      const piece = part.trim();
+      if (piece) extras.push(piece);
+    }
+  }
+  return extractLocalityCandidates(undefined, extras);
+}
+
+/**
+ * Street coverage for booking create: same alias/polygon/radius rules as
+ * validate_service_area, plus an authenticated lock from that validation.
+ * Production zones often have empty polygons/centers, so the lock is required
+ * when Google's formatted locality (e.g. Rincón de Milberg) is not a zone alias.
+ */
+export function matchStreetCoverage(
+  zones: CoverageZone[],
+  args: {
+    lat?: number | null;
+    lng?: number | null;
+    neighborhood?: string | null;
+    formatted_address?: string | null;
+    address?: string | null;
+    coverage_zone_id?: string | null;
+    coverage_zone_name?: string | null;
+  },
+): CoverageMatch {
+  const localityCandidates = localityCandidatesFromText(
+    args.neighborhood,
+    args.coverage_zone_name,
+    args.formatted_address,
+    args.address,
+  );
+  const matched = matchZone(zones, {
+    lat: args.lat,
+    lng: args.lng,
+    neighborhood: args.neighborhood,
+    localityCandidates,
+  });
+  if (matched.zone) return matched;
+  const lockedId = String(args.coverage_zone_id ?? "").trim();
+  if (lockedId) {
+    const locked = zones.find((z) => z.id === lockedId) ?? null;
+    if (locked) return { zone: locked, match_type: "alias", distance_km: null };
+  }
+  const lockedName = fold(String(args.coverage_zone_name ?? ""));
+  if (lockedName) {
+    const byName = zones.find((z) => fold(z.name) === lockedName) ?? null;
+    if (byName) return { zone: byName, match_type: "alias", distance_km: null };
+  }
+  return matched;
+}
+
 export function formatCoverageCopy(zoneNames: string[]): string {
   const names = [...new Set(zoneNames.map((n) => n.trim()).filter(Boolean))];
   if (names.length === 0) {

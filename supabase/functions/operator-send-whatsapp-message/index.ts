@@ -7,6 +7,7 @@ import {
   parseOperatorWhatsappAction,
 } from "../_shared/botmaker-operator-templates.ts";
 import { sendBotmakerTemplateMessage } from "../_shared/botmaker-outbound.ts";
+import { isN8nOutboundEnabled } from "../_shared/whatsapp-cloud.ts";
 import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
 
 const corsHeaders = {
@@ -101,12 +102,12 @@ Deno.serve(async (req) => {
   }
 
   const templateDef = getOperatorTemplate(actionKey);
-  if (!isOperatorTemplateConfigured(templateDef.templateKey)) {
+  if (!isN8nOutboundEnabled() && !isOperatorTemplateConfigured(templateDef.templateKey)) {
     return json(
       {
         ok: false,
         status: "template_not_configured",
-        message: `Plantilla Botmaker "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
+        message: `Plantilla WhatsApp "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
         template_key: templateDef.templateKey,
       },
       422,

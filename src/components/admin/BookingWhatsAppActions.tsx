@@ -29,14 +29,14 @@ export function BookingWhatsAppActions({ booking }: { booking: Booking }) {
     onSuccess: (r, template_key) => {
       if (!r.ok) {
         const msg =
-          r.error === "missing_botmaker_token"
-            ? "WhatsApp no configurado: falta BOTMAKER_API_TOKEN en el servidor."
+          r.error === "missing_botmaker_token" || r.error === "missing_n8n_webhook_secret"
+            ? "WhatsApp no configurado: falta N8N_WHATSAPP_WEBHOOK_URL o el secret en el servidor."
             : r.error ?? "No se pudo enviar el WhatsApp.";
         toast.error(msg);
         return;
       }
       const label = TEMPLATES.find((t) => t.key === template_key)?.label ?? "Mensaje";
-      toast.success(`${label} enviado por Botmaker.`);
+      toast.success(`${label} enviado por WhatsApp.`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -45,7 +45,7 @@ export function BookingWhatsAppActions({ booking }: { booking: Booking }) {
 
   return (
     <div className="space-y-2 border-t pt-3">
-      <p className="text-xs font-medium text-muted-foreground">WhatsApp (Botmaker)</p>
+      <p className="text-xs font-medium text-muted-foreground">WhatsApp</p>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button type="button" size="sm" variant="outline" disabled={send.isPending}>

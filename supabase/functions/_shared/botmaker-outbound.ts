@@ -1,6 +1,16 @@
-// Outbound WhatsApp via Botmaker API (server-side only).
+// Outbound WhatsApp via Botmaker API (server-side only), with an n8n Cloud API gateway
+// when N8N_WHATSAPP_WEBHOOK_URL is set. Botmaker remains the fallback if the env is empty.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { normalizePhone } from "./botmaker-phone.ts";
+import {
+  buildN8nOutboundPayload,
+  extractCloudProviderMessageId,
+  isN8nOutboundEnabled,
+  isWaCloudTemplateKey,
+  n8nWhatsAppWebhookHeaderName,
+  n8nWhatsAppWebhookSecret,
+  n8nWhatsAppWebhookUrl,
+} from "./whatsapp-cloud.ts";
 
 export type OutboundLogStatus = "pending" | "sent" | "failed" | "skipped";
 
@@ -419,6 +429,7 @@ async function insertCommunicationLog(
   row: {
     status: OutboundLogStatus;
     input: SendBotmakerMessageInput;
+    provider?: "botmaker" | "n8n";
     provider_message_id?: string | null;
     error?: string | null;
     request?: LoggedHttpRequest | null;
@@ -432,7 +443,7 @@ async function insertCommunicationLog(
 ): Promise<string | null> {
   const { data, error } = await admin.from("communication_logs").insert({
     channel: "whatsapp",
-    provider: "botmaker",
+    provider: row.provider ?? "botmaker",
     direction: "outbound",
     booking_id: row.input.booking_id ?? null,
     message_text: row.input.message,
@@ -462,6 +473,143 @@ async function insertCommunicationLog(
   return data?.id ?? null;
 }
 
+const N8N_GATEWAY_TIMEOUT_MS = 10_000;
+
+async function sendViaN8n(
+  admin: SupabaseClient,
+  input: SendBotmakerMessageInput & { variables?: Record<string, unknown> },
+): Promise<SendBotmakerMessageResult> {
+  const phone = normalizeArgentinaWhatsAppPhone(input.phone) ?? input.phone;
+  const kind = input.send_mode === "template" || isWaCloudTemplateKey(input.template_key ?? "")
+    ? "template"
+    : "text";
+  const payload = buildN8nOutboundPayload({
+    kind: kind === "template" ? "template" : "text",
+    phone,
+    text: input.message,
+    template_key: input.template_key,
+    variables: input.variables ?? {},
+    conversation_id: phone,
+    customer_name: input.customer_name ?? null,
+    booking_id: input.booking_id ?? null,
+  });
+  const url = n8nWhatsAppWebhookUrl();
+  const secret = n8nWhatsAppWebhookSecret();
+  const headerName = n8nWhatsAppWebhookHeaderName();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (secret) {
+    headers[headerName] = secret;
+    if (headerName.toLowerCase() !== "authorization") {
+      headers.Authorization = secret;
+    }
+  }
+  const httpRequest: LoggedHttpRequest = {
+    url,
+    path: new URL(url).pathname,
+    method: "POST",
+    payload,
+    headers: Object.keys(headers),
+  };
+
+  if (!secret) {
+    const r: SendBotmakerMessageResult = {
+      ok: false,
+      status: "failed",
+      error: "missing_n8n_webhook_secret",
+      request: httpRequest,
+      response: null,
+    };
+    r.log_id = await insertCommunicationLog(admin, {
+      status: "failed",
+      provider: "n8n",
+      input: { ...input, phone },
+      error: r.error,
+      request: httpRequest,
+    });
+    return r;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), N8N_GATEWAY_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    const httpResponse = await readHttpResponse(res);
+    if (!res.ok) {
+      const err = `n8n_http_${res.status}`;
+      console.error("[botmaker-outbound] n8n send failed", res.status, httpResponse.bodyText.slice(0, 2000));
+      const r: SendBotmakerMessageResult = {
+        ok: false,
+        status: "failed",
+        error: err,
+        request: httpRequest,
+        response: httpResponse,
+      };
+      r.log_id = await insertCommunicationLog(admin, {
+        status: "failed",
+        provider: "n8n",
+        input: { ...input, phone },
+        error: err,
+        request: httpRequest,
+        response: httpResponse,
+      });
+      return r;
+    }
+    const provider_message_id = extractCloudProviderMessageId(httpResponse.body) ??
+      extractProviderMessageId(httpResponse.body);
+    const r: SendBotmakerMessageResult = {
+      ok: true,
+      status: "sent",
+      provider_message_id,
+      request: httpRequest,
+      response: httpResponse,
+    };
+    r.log_id = await insertCommunicationLog(admin, {
+      status: "sent",
+      provider: "n8n",
+      input: { ...input, phone },
+      provider_message_id,
+      request: httpRequest,
+      response: httpResponse,
+    });
+    return r;
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err);
+    console.error("[botmaker-outbound] n8n exception", message);
+    const httpResponse: LoggedHttpResponse = {
+      status: 0,
+      statusText: "network_error",
+      bodyText: message,
+      body: null,
+    };
+    const r: SendBotmakerMessageResult = {
+      ok: false,
+      status: "failed",
+      error: message,
+      request: httpRequest,
+      response: httpResponse,
+    };
+    r.log_id = await insertCommunicationLog(admin, {
+      status: "failed",
+      provider: "n8n",
+      input: { ...input, phone },
+      error: message,
+      request: httpRequest,
+      response: httpResponse,
+    });
+    return r;
+  }
+}
+
 /**
  * Sends a WhatsApp text via Botmaker. Never throws — failures are logged.
  * Adjust BOTMAKER_SEND_PATH / payload shape in one place if Botmaker changes API.
@@ -489,7 +637,7 @@ export async function sendBotmakerWhatsApp(
     return r;
   }
 
-  if (!message) {
+  if (!message && !input.template_key) {
     const r: SendBotmakerMessageResult = {
       ok: false,
       status: "skipped",
@@ -499,6 +647,10 @@ export async function sendBotmakerWhatsApp(
     };
     r.log_id = await insertCommunicationLog(admin, { status: "skipped", input, error: r.error });
     return r;
+  }
+
+  if (isN8nOutboundEnabled()) {
+    return await sendViaN8n(admin, { ...input, phone, message });
   }
 
   const token = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
@@ -839,6 +991,16 @@ export async function sendBotmakerTemplateMessage(
     });
     return r;
   }
+
+  if (isN8nOutboundEnabled()) {
+    return await sendViaN8n(admin, {
+      ...logInput,
+      phone,
+      send_mode: "template",
+      variables: variablesPreview,
+    });
+  }
+
   if ((useTriggerIntent || useIntentV2) && !ruleNameOrId) {
     const r: SendBotmakerMessageResult = {
       ok: false,
@@ -1009,7 +1171,7 @@ export async function hasOutboundTemplateLog(
     .select("id, raw_payload, created_at")
     .eq("booking_id", bookingId)
     .eq("channel", "whatsapp")
-    .eq("provider", "botmaker")
+    .in("provider", ["botmaker", "n8n"])
     .eq("direction", "outbound")
     .order("created_at", { ascending: false })
     .limit(20);

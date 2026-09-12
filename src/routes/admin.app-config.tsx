@@ -9,7 +9,7 @@ export const Route = createFileRoute("/admin/app-config")({
 
 const settings = [
   { label: "Nombre comercial", value: "Washero" },
-  { label: "WhatsApp principal", value: "Botmaker (ver Botmaker)" },
+  { label: "WhatsApp principal", value: "n8n / Cloud API" },
   { label: "Zona principal", value: "Maschwitz / Escobar" },
   { label: "Moneda", value: "ARS (peso argentino)" },
   { label: "Estado lanzamiento", value: "Beta operativo" },

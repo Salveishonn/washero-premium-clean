@@ -4,6 +4,7 @@ import {
   extractLocalityCandidates,
   fold,
   formatCoverageCopy,
+  matchStreetCoverage,
   matchZone,
   type CoverageZone,
 } from "./coverage.ts";
@@ -162,4 +163,49 @@ Deno.test("dynamic coverage copy includes active zones and handles counts", () =
   );
   assertEquals(many.includes("Maquinista Savio"), true);
   assertEquals(many.includes("Pilar"), false);
+});
+
+Deno.test("matchStreetCoverage uses a locked zone when locality is not an alias", () => {
+  const tigre = zone({
+    id: "zone-tigre",
+    name: "Tigre",
+    aliases: ["Tigre"],
+  });
+  const match = matchStreetCoverage([tigre], {
+    neighborhood: "Rincón de Milberg",
+    formatted_address: "Av. de los Lagos 1602, Rincón de Milberg, Provincia de Buenos Aires",
+    lat: -34.4,
+    lng: -58.64,
+    coverage_zone_id: "zone-tigre",
+    coverage_zone_name: "Tigre",
+  });
+  assertEquals(match.zone?.id, "zone-tigre");
+  assertEquals(match.match_type, "alias");
+});
+
+Deno.test("matchStreetCoverage does not invent coverage without lock or alias", () => {
+  const tigre = zone({
+    id: "zone-tigre",
+    name: "Tigre",
+    aliases: ["Tigre"],
+  });
+  const match = matchStreetCoverage([tigre], {
+    neighborhood: "Monserrat",
+    formatted_address: "Florida 100, CABA",
+  });
+  assertEquals(match.zone, null);
+  assertEquals(match.match_type, "none");
+});
+
+Deno.test("matchStreetCoverage alias-matches Tigre from formatted address parts", () => {
+  const tigre = zone({
+    id: "zone-tigre",
+    name: "Tigre",
+    aliases: ["Tigre"],
+  });
+  const match = matchStreetCoverage([tigre], {
+    neighborhood: "Rincón de Milberg",
+    formatted_address: "Av. de los Lagos 1602, Tigre, Provincia de Buenos Aires",
+  });
+  assertEquals(match.zone?.name, "Tigre");
 });

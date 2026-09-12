@@ -163,12 +163,12 @@ function NotificacionesPage() {
     onSuccess: (r) => {
       if (!r.ok) {
         const msg =
-          r.error === "missing_botmaker_token"
-            ? "Falta BOTMAKER_API_TOKEN en el servidor."
+          r.error === "missing_botmaker_token" || r.error === "missing_n8n_webhook_secret"
+            ? "Falta N8N_WHATSAPP_WEBHOOK_URL o el secret en el servidor."
             : r.error ?? "No se pudo enviar.";
         toast.error(msg);
       } else {
-        toast.success("Mensaje enviado por Botmaker.");
+        toast.success("Mensaje enviado por WhatsApp.");
       }
       qc.invalidateQueries({ queryKey: ["communication_logs"] });
       diagnostics.refetch();
@@ -186,7 +186,7 @@ function NotificacionesPage() {
           <Bell className="h-5 w-5" /> Notificaciones WhatsApp
         </h1>
         <p className="text-sm text-muted-foreground">
-          Automatización saliente vía Botmaker. Los fallos no bloquean reservas ni pagos.
+          Automatización saliente vía n8n / Cloud API. Los fallos no bloquean reservas ni pagos.
         </p>
       </div>
 
