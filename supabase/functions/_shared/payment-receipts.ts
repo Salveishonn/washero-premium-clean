@@ -7,6 +7,26 @@ import { deliverInvoiceForBooking } from "./invoice-delivery.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Botmaker stores message row ids as uuid; Graph/n8n send wamid.* strings. */
+export function asPostgresUuid(value: string | null | undefined): string | null {
+  const raw = String(value ?? "").trim();
+  return UUID_RE.test(raw) ? raw : null;
+}
+
+export function splitReceiptMessageId(messageId: string | null | undefined): {
+  botmakerMessageId: string | null;
+  externalMessageId: string | null;
+} {
+  const raw = String(messageId ?? "").trim();
+  if (!raw) return { botmakerMessageId: null, externalMessageId: null };
+  const uuid = asPostgresUuid(raw);
+  if (uuid) return { botmakerMessageId: uuid, externalMessageId: null };
+  return { botmakerMessageId: null, externalMessageId: raw };
+}
+
 export type InboundReceiptMedia = {
   messageType: string;
   mediaUrl: string;
@@ -400,11 +420,29 @@ export async function capturePaymentReceiptFromBotmaker(
   admin: SupabaseClient,
   input: CapturePaymentReceiptInput,
 ): Promise<CapturePaymentReceiptResult> {
-  if (input.botmakerMessageId) {
+  const messageIds = splitReceiptMessageId(input.botmakerMessageId);
+  if (messageIds.botmakerMessageId) {
     const { data: dup } = await admin
       .from("payment_receipts")
       .select("id,booking_id,status")
-      .eq("botmaker_message_id", input.botmakerMessageId)
+      .eq("botmaker_message_id", messageIds.botmakerMessageId)
+      .maybeSingle();
+    if (dup?.id) {
+      return {
+        ok: true,
+        receiptId: dup.id,
+        bookingId: dup.booking_id ?? null,
+        receiptStatus: dup.status ?? null,
+        paid: dup.status === "approved",
+        error: "duplicate_message",
+      };
+    }
+  }
+  if (messageIds.externalMessageId) {
+    const { data: dup } = await admin
+      .from("payment_receipts")
+      .select("id,booking_id,status")
+      .eq("external_message_id", messageIds.externalMessageId)
       .maybeSingle();
     if (dup?.id) {
       return {
@@ -477,7 +515,8 @@ export async function capturePaymentReceiptFromBotmaker(
       booking_id: bookingId,
       customer_phone: phone,
       source: "whatsapp",
-      botmaker_message_id: input.botmakerMessageId ?? null,
+      botmaker_message_id: messageIds.botmakerMessageId,
+      external_message_id: messageIds.externalMessageId,
       media_url: input.media.mediaUrl,
       storage_bucket: PAYMENT_RECEIPTS_BUCKET,
       storage_path: uploadOk ? storagePath : null,

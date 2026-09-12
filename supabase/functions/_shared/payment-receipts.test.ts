@@ -1,5 +1,10 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { downloadWhatsAppCloudMedia, settleTransferReceiptAsPaid } from "./payment-receipts.ts";
+import {
+  asPostgresUuid,
+  downloadWhatsAppCloudMedia,
+  settleTransferReceiptAsPaid,
+  splitReceiptMessageId,
+} from "./payment-receipts.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 type Row = Record<string, unknown>;
@@ -110,4 +115,18 @@ Deno.test("downloadWhatsAppCloudMedia is a no-op without token or media id", asy
     if (prev == null) Deno.env.delete("WHATSAPP_CLOUD_ACCESS_TOKEN");
     else Deno.env.set("WHATSAPP_CLOUD_ACCESS_TOKEN", prev);
   }
+});
+
+Deno.test("splitReceiptMessageId keeps Botmaker uuids off Graph wamid strings", () => {
+  assertEquals(asPostgresUuid("wamid.ABC"), null);
+  assertEquals(asPostgresUuid("smoke-receipt-1"), null);
+  assertEquals(asPostgresUuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11");
+  assertEquals(splitReceiptMessageId("wamid.R1"), {
+    botmakerMessageId: null,
+    externalMessageId: "wamid.R1",
+  });
+  assertEquals(splitReceiptMessageId("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"), {
+    botmakerMessageId: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    externalMessageId: null,
+  });
 });
