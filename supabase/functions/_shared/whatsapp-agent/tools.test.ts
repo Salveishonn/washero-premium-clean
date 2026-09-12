@@ -7,7 +7,7 @@
 // project, not here (see booking-concurrency.integration.test.ts).
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { AGENT_TOOLS, buildBookingIdempotencyKey, findTool } from "./tools.ts";
+import { AGENT_TOOLS, buildBookingIdempotencyKey, customerOwnsStoredPhone, customerPhoneVariants, findTool } from "./tools.ts";
 
 // Never actually invoked on the validation-failure paths under test — those `return` before any
 // `admin.*` call — so an unimplemented stub is enough to prove no DB call happened.
@@ -326,6 +326,14 @@ Deno.test(
     assertEquals(key, "whatsapp_agent:conv-1:2026-08-01:10:00");
   },
 );
+
+Deno.test("customerPhoneVariants matches WhatsApp digits to stored display format", () => {
+  const variants = customerPhoneVariants("5491100000001");
+  assert(variants.includes("+54 9 11 0000-0001"));
+  assert(variants.includes("5491100000001"));
+  assertEquals(customerOwnsStoredPhone("+54 9 11 0000-0001", "5491100000001"), true);
+  assertEquals(customerOwnsStoredPhone("+54 9 11 9999-0001", "5491100000001"), false);
+});
 
 Deno.test("set_conversation_state rejects missing state without touching the DB", async () => {
   const tool = findTool("set_conversation_state")!;

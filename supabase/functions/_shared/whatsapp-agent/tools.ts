@@ -31,6 +31,7 @@ import {
   requestedIntervalFitsOperatingEnd,
 } from "../slot-capacity.ts";
 import { addDaysIso, isSlotTooSoonForPublic } from "../logistic-availability.ts";
+import { parseArgentinaMobile } from "../argentina-phone.ts";
 
 export type AgentToolContext = {
   conversationId: string;
@@ -122,6 +123,38 @@ export function buildBookingIdempotencyKey(opts: {
   return `whatsapp_agent:${opts.conversationId}:${suffix}`;
 }
 
+/** Historic and current writers store mixed phone shapes. Match them all. */
+export function customerPhoneVariants(phone: string): string[] {
+  const parsed = parseArgentinaMobile(phone);
+  if (parsed.ok) return parsed.lookupVariants;
+  const raw = String(phone ?? "").trim();
+  return raw ? [raw] : [];
+}
+
+export function customerOwnsStoredPhone(
+  stored: string | null | undefined,
+  incoming: string,
+): boolean {
+  if (!stored) return false;
+  if (stored === incoming) return true;
+  return customerPhoneVariants(incoming).includes(stored);
+}
+
+async function loadOwnedBooking<T extends { customer_phone?: string | null }>(
+  admin: SupabaseClient,
+  bookingId: string,
+  incomingPhone: string,
+  select: string,
+): Promise<{ data: T | null; error: unknown }> {
+  const { data, error } = await admin.from("bookings").select(select).eq("id", bookingId).maybeSingle();
+  if (error) return { data: null, error };
+  const row = (data ?? null) as T | null;
+  if (!row || !customerOwnsStoredPhone(row.customer_phone, incomingPhone)) {
+    return { data: null, error: null };
+  }
+  return { data: row, error: null };
+}
+
 // ---------------------------------------------------------------------------
 // get_customer_by_phone
 // ---------------------------------------------------------------------------
@@ -132,24 +165,14 @@ const getCustomerByPhone: ToolDefinition = {
     "Busca si ya existe un cliente con el número de teléfono de esta conversación y devuelve su última reserva si tiene. Usalo al inicio de la conversación para saber si es cliente nuevo o recurrente. No aceptes ni uses un teléfono distinto al de esta conversación.",
   input_schema: { type: "object", properties: {} },
   execute: async (admin, _args, ctx) => {
-    const digits = ctx.customerPhone.replace(/\D/g, "");
-    const tail = digits.length >= 10 ? digits.slice(-10) : digits;
-
+    const variants = customerPhoneVariants(ctx.customerPhone);
     const { data: exact } = await admin
       .from("customers")
       .select("id,full_name,phone")
-      .eq("phone", ctx.customerPhone)
+      .in("phone", variants.length ? variants : [ctx.customerPhone])
+      .limit(1)
       .maybeSingle();
-    const customer =
-      exact ??
-      (
-        await admin
-          .from("customers")
-          .select("id,full_name,phone")
-          .like("phone", `%${tail}%`)
-          .limit(1)
-          .maybeSingle()
-      ).data;
+    const customer = exact;
 
     if (!customer) return { ok: true, customer_exists: false, customer: null, last_booking: null };
 
@@ -924,13 +947,14 @@ const getBooking: ToolDefinition = {
   execute: async (admin, args, ctx) => {
     const booking_id = str(args.booking_id);
     if (!booking_id) return badArgs("Falta booking_id.");
-    const { data } = await admin
-      .from("bookings")
-      .select(BOOKING_SELECT)
-      .eq("id", booking_id)
-      .maybeSingle();
-    if (!data || data.customer_phone !== ctx.customerPhone)
-      return { ok: false, error: "not_found" };
+    const { data, error } = await loadOwnedBooking(
+      admin,
+      booking_id,
+      ctx.customerPhone,
+      BOOKING_SELECT,
+    );
+    if (error) return { ok: false, error: "server_error" };
+    if (!data) return { ok: false, error: "not_found" };
     return { ok: true, booking: data };
   },
 };
@@ -946,10 +970,11 @@ const listCustomerBookings: ToolDefinition = {
   },
   execute: async (admin, args, ctx) => {
     const limit = Math.min(20, Math.max(1, Number(args.limit) || 5));
+    const variants = customerPhoneVariants(ctx.customerPhone);
     const { data, error } = await admin
       .from("bookings")
       .select(BOOKING_SELECT)
-      .eq("customer_phone", ctx.customerPhone)
+      .in("customer_phone", variants.length ? variants : [ctx.customerPhone])
       .order("scheduled_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -975,9 +1000,17 @@ const cancelBooking: ToolDefinition = {
     const booking_id = str(args.booking_id);
     if (!booking_id) return badArgs("Falta booking_id.");
     if (ctx.dryRun) return { ok: true, dry_run: true, would_cancel: booking_id };
+    const owned = await loadOwnedBooking<{ customer_phone?: string | null }>(
+      admin,
+      booking_id,
+      ctx.customerPhone,
+      "id,customer_phone",
+    );
+    if (owned.error) return { ok: false, error: "server_error" };
+    if (!owned.data?.customer_phone) return { ok: false, error: "not_found" };
     const { data, error } = await admin.rpc("cancel_booking_atomic", {
       p_booking_id: booking_id,
-      p_customer_phone: ctx.customerPhone,
+      p_customer_phone: owned.data.customer_phone,
     });
     if (error) return { ok: false, error: "server_error" };
     return data as ToolResult;
@@ -1007,9 +1040,17 @@ const rescheduleBooking: ToolDefinition = {
     if (!isTimeStr(new_time)) return badArgs("new_time inválida.");
     if (ctx.dryRun)
       return { ok: true, dry_run: true, would_reschedule: { booking_id, new_date, new_time } };
+    const owned = await loadOwnedBooking<{ customer_phone?: string | null }>(
+      admin,
+      booking_id,
+      ctx.customerPhone,
+      "id,customer_phone",
+    );
+    if (owned.error) return { ok: false, error: "server_error" };
+    if (!owned.data?.customer_phone) return { ok: false, error: "not_found" };
     const { data, error } = await admin.rpc("reschedule_booking_atomic", {
       p_booking_id: booking_id,
-      p_customer_phone: ctx.customerPhone,
+      p_customer_phone: owned.data.customer_phone,
       p_new_date: new_date,
       p_new_time: `${new_time}:00`,
     });
@@ -1083,12 +1124,12 @@ const getBankTransferDetails: ToolDefinition = {
     let scheduled_date: string | null = null;
     let scheduled_time: string | null = null;
     if (booking_id) {
-      const { data: booking } = await admin
-        .from("bookings")
-        .select("id,price,scheduled_date,scheduled_time,customer_phone")
-        .eq("id", booking_id)
-        .eq("customer_phone", ctx.customerPhone)
-        .maybeSingle();
+      const { data: booking } = await loadOwnedBooking(
+        admin,
+        booking_id,
+        ctx.customerPhone,
+        "id,price,scheduled_date,scheduled_time,customer_phone",
+      );
       if (booking) {
         amount = Number(booking.price) || null;
         scheduled_date = booking.scheduled_date ?? null;
@@ -1134,14 +1175,12 @@ const getPaymentLink: ToolDefinition = {
     const booking_id = str(args.booking_id);
     if (!booking_id) return badArgs("Falta booking_id.");
 
-    const { data: booking, error: fetchErr } = await admin
-      .from("bookings")
-      .select(
-        "id,customer_phone,customer_name,customer_email,service_name,price,payment_method,payment_status,scheduled_date,scheduled_time",
-      )
-      .eq("id", booking_id)
-      .eq("customer_phone", ctx.customerPhone)
-      .maybeSingle();
+    const { data: booking, error: fetchErr } = await loadOwnedBooking(
+      admin,
+      booking_id,
+      ctx.customerPhone,
+      "id,customer_phone,customer_name,customer_email,service_name,price,payment_method,payment_status,scheduled_date,scheduled_time",
+    );
     if (fetchErr) return { ok: false, error: "server_error" };
     if (!booking) return { ok: false, error: "not_found" };
     if (booking.payment_method !== "MercadoPago") {
