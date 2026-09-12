@@ -6,7 +6,7 @@
  *
  *   WHATSAPP_TOOLS_SECRET=... node scripts/whatsapp-tools-prod-lifecycle.mjs
  */
-const URL = "https://domslcbxgqbylmciqrxt.supabase.co/functions/v1/whatsapp-tools";
+const TOOLS_URL = "https://domslcbxgqbylmciqrxt.supabase.co/functions/v1/whatsapp-tools";
 const SECRET = (process.env.WHATSAPP_TOOLS_SECRET || "").trim();
 const PHONE = process.env.WHATSAPP_SMOKE_PHONE || "5491100000001";
 const CONV = process.env.WHATSAPP_SMOKE_CONVERSATION || "smoke-booking-lifecycle";
@@ -19,7 +19,7 @@ if (!SECRET) {
 }
 
 async function call(tool, args = {}) {
-  const res = await fetch(URL, {
+  const res = await fetch(TOOLS_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +60,7 @@ function slimBooking(b) {
   };
 }
 
-const report = { url: URL, phone: PHONE, conversation_id: CONV, cases: [], created_ids: [] };
+const report = { url: TOOLS_URL, phone: PHONE, conversation_id: CONV, cases: [], created_ids: [] };
 const createdIds = [];
 
 function pushCase(name, r, extra = {}) {
@@ -289,7 +289,9 @@ try {
     has_checkout_url: typeof checkout === "string" && checkout.startsWith("http"),
     reused: payLink.body?.reused === true,
     already_paid: payLink.body?.already_paid === true,
-    checkout_host: checkout ? new URL(checkout).host : null,
+    checkout_host: typeof checkout === "string" && checkout.startsWith("http")
+      ? new URL(checkout).host
+      : null,
   });
 
   const tr = await createWithMethod("Transferencia", `smoke-tr-${Date.now()}`, {
