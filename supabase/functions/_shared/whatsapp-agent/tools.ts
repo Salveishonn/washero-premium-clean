@@ -807,6 +807,8 @@ const createBooking: ToolDefinition = {
       formatted_address: { type: "string" },
       address_lat: { type: "number" },
       address_lng: { type: "number" },
+      coverage_zone_id: { type: "string" },
+      coverage_zone_name: { type: "string" },
       confirmation_message_id: {
         type: "string",
         description:
@@ -873,6 +875,8 @@ const createBooking: ToolDefinition = {
       formatted_address: str(args.formatted_address) || null,
       address_lat: num(args.address_lat),
       address_lng: num(args.address_lng),
+      coverage_zone_id: str(args.coverage_zone_id) || null,
+      coverage_zone_name: str(args.coverage_zone_name) || null,
       vehicle_type: str(args.vehicle_type),
       service_id: str(args.service_id),
       scheduled_date,

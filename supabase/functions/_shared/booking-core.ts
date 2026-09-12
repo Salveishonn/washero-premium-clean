@@ -3,7 +3,7 @@
 
 // deno-lint-ignore-file no-explicit-any
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { loadActiveZones, matchZone, type CoverageMatch } from "./coverage.ts";
+import { loadActiveZones, matchStreetCoverage, type CoverageMatch } from "./coverage.ts";
 import { loadVehiclePricingItem, normalizeVehiclePricingCode } from "./pricing-items.ts";
 import {
   maxOperatingDayEndMinutes,
@@ -78,6 +78,9 @@ export type CoreBookingInput = {
     raw_extras?: unknown;
   };
   booking_units?: CoreBookingUnitInput[];
+  /** Locked zone from validate_service_area — required when polygons/centers are empty. */
+  coverage_zone_id?: string | null;
+  coverage_zone_name?: string | null;
   address_type?: "street" | "private_neighborhood";
   private_neighborhood_id?: string | null;
   private_neighborhood_name?: string | null;
@@ -987,7 +990,15 @@ export async function tryCreateBooking(
   const vehicle_count = pricedUnits.length;
 
   const zones = await loadActiveZones(admin);
-  let cov = matchZone(zones, { lat: address_lat, lng: address_lng, neighborhood });
+  let cov = matchStreetCoverage(zones, {
+    lat: address_lat,
+    lng: address_lng,
+    neighborhood,
+    formatted_address,
+    address,
+    coverage_zone_id: input.coverage_zone_id,
+    coverage_zone_name: input.coverage_zone_name,
+  });
   if (address_type === "private_neighborhood" && private_neighborhood_row) {
     const zoneFromPreset = preset_coverage_zone_id
       ? (zones.find((z) => z.id === preset_coverage_zone_id) ?? null)
