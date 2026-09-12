@@ -54,8 +54,25 @@ code = code.replace(importRe, "");
 // Production v9 loaders eval `var gr=globalThis.__waToolsClient;` — pin the
 // minified createClient identifier so a rebuild does not 500 the live function.
 const clientAlias = "gr";
+function unusedIdent(src, prefix = "waGr") {
+  let i = 0;
+  while (new RegExp(`\\b${prefix}${i}\\b`).test(src)) i += 1;
+  return `${prefix}${i}`;
+}
 if (bundledAlias !== clientAlias) {
+  // esbuild may already have assigned `gr` to another binding (e.g. a tool
+  // object). Evacuate those first or eval overwrites createClient and 500s
+  // with `TypeError: gr is not a function`.
+  if (new RegExp(`\\b${clientAlias}\\b`).test(code)) {
+    const spare = unusedIdent(code);
+    code = code.replace(new RegExp(`\\b${clientAlias}\\b`, "g"), spare);
+  }
   code = code.replace(new RegExp(`\\b${bundledAlias}\\b`, "g"), clientAlias);
+}
+const grAssignments = [...code.matchAll(/\bgr\s*=/g)];
+if (grAssignments.length > 0) {
+  console.error("bundle still assigns to gr; refusing to write a colliding payload");
+  process.exit(1);
 }
 
 const b64 = gzipSync(Buffer.from(code, "utf8"), { level: 9 }).toString("base64");
