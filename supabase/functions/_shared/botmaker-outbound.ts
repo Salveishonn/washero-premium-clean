@@ -15,8 +15,8 @@ import {
   isWaCloudTemplateKey,
   loadCloudApiConfig,
   n8nWhatsAppWebhookHeaderName,
-  n8nWhatsAppWebhookSecret,
   n8nWhatsAppWebhookUrl,
+  resolveN8nWhatsAppWebhookSecret,
   shouldFallbackTemplateToSessionText,
   type CloudApiConfig,
 } from "./whatsapp-cloud.ts";
@@ -619,7 +619,11 @@ async function sendViaCloudApi(
 
 async function sendViaN8n(
   admin: SupabaseClient,
-  input: SendBotmakerMessageInput & { variables?: Record<string, unknown> },
+  input: SendBotmakerMessageInput & {
+    variables?: Record<string, unknown>;
+    n8nUrl?: string;
+    n8nSecret?: string;
+  },
 ): Promise<SendBotmakerMessageResult> {
   const phone = normalizeArgentinaWhatsAppPhone(input.phone) ?? input.phone;
   const kind = outboundKind(input);
@@ -633,8 +637,8 @@ async function sendViaN8n(
     customer_name: input.customer_name ?? null,
     booking_id: input.booking_id ?? null,
   });
-  const url = n8nWhatsAppWebhookUrl();
-  const secret = n8nWhatsAppWebhookSecret();
+  const url = input.n8nUrl ?? n8nWhatsAppWebhookUrl();
+  const secret = input.n8nSecret ?? "";
   const headerName = n8nWhatsAppWebhookHeaderName();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (secret) {
@@ -775,8 +779,31 @@ async function sendViaPreferredTransport(
     }
     return result;
   }
-  if (isN8nOutboundEnabled()) {
-    return await sendViaN8n(admin, input);
+  const n8nUrl = n8nWhatsAppWebhookUrl();
+  const n8nSecret = n8nUrl ? await resolveN8nWhatsAppWebhookSecret() : "";
+  if (n8nUrl && n8nSecret) {
+    const result = await sendViaN8n(admin, { ...input, n8nUrl, n8nSecret });
+    const sessionText = (input.message ?? "").trim();
+    const status = result.response?.status ?? 0;
+    if (
+      !result.ok &&
+      outboundKind(input) === "template" &&
+      sessionText &&
+      status !== 401 &&
+      status !== 403
+    ) {
+      console.warn("[botmaker-outbound] n8n template failed; falling back to session text", {
+        template_key: input.template_key ?? null,
+        error: result.error ?? null,
+      });
+      return await sendViaN8n(admin, {
+        ...input,
+        send_mode: "text",
+        n8nUrl,
+        n8nSecret,
+      });
+    }
+    return result;
   }
   return null;
 }

@@ -1,4 +1,13 @@
-/** WhatsApp Cloud API outbound helpers. Used when META_ACCESS_TOKEN + META_PHONE_NUMBER_ID are set. */
+/** WhatsApp Cloud API outbound helpers. Used when META_ACCESS_TOKEN + META_PHONE_NUMBER_ID are set.
+ *  Production fallback is the n8n Outbound Gateway (Cloud API credentials live in n8n).
+ */
+
+/** Published n8n WhatsApp Outbound Gateway. Override with N8N_WHATSAPP_WEBHOOK_URL; set to "off" to disable. */
+export const N8N_WHATSAPP_OUTBOUND_WEBHOOK_PRODUCTION_URL =
+  "https://n8n.flynnpedroa.engineer/webhook/washero-whatsapp-outbound";
+
+/** Phone Number ID used by the live Washero n8n WhatsApp nodes. */
+export const WA_CLOUD_PHONE_NUMBER_ID = "1128142377056954";
 
 export const WA_CLOUD_TEMPLATE_KEYS = [
   "booking_confirmed_v2",
@@ -110,7 +119,9 @@ export function toWhatsAppCloudRecipient(phone: string): string {
 }
 
 export function n8nWhatsAppWebhookUrl(): string {
-  return envTrim("N8N_WHATSAPP_WEBHOOK_URL");
+  const raw = envTrim("N8N_WHATSAPP_WEBHOOK_URL");
+  if (raw === "off" || raw === "disable") return "";
+  return raw || N8N_WHATSAPP_OUTBOUND_WEBHOOK_PRODUCTION_URL;
 }
 
 export function n8nWhatsAppWebhookSecret(): string {
@@ -125,6 +136,35 @@ export function isN8nOutboundEnabled(): boolean {
   return n8nWhatsAppWebhookUrl().length > 0;
 }
 
+export async function fetchVaultEdgeSecret(name: string): Promise<string> {
+  const url = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !key || !name.trim()) return "";
+  try {
+    const res = await fetch(`${url}/rest/v1/rpc/get_edge_fn_secret`, {
+      method: "POST",
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_name: name }),
+    });
+    if (!res.ok) return "";
+    const payload = await res.json();
+    return typeof payload === "string" ? payload.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Env first, then vault `n8n_whatsapp_webhook_secret` (Washero outbound header). */
+export async function resolveN8nWhatsAppWebhookSecret(): Promise<string> {
+  const fromEnv = n8nWhatsAppWebhookSecret();
+  if (fromEnv) return fromEnv;
+  return await fetchVaultEdgeSecret("n8n_whatsapp_webhook_secret");
+}
+
 export type N8nOutboundKind = "text" | "template";
 
 export type N8nOutboundPayload = {
@@ -133,6 +173,9 @@ export type N8nOutboundPayload = {
   text?: string;
   template_key?: string | null;
   template_name?: string | null;
+  template_language?: string | null;
+  template_info?: string | null;
+  phone_number_id?: string | null;
   variables?: Record<string, unknown>;
   conversation_id?: string | null;
   customer_name?: string | null;
@@ -141,12 +184,17 @@ export type N8nOutboundPayload = {
 
 export function buildN8nOutboundPayload(input: N8nOutboundPayload): N8nOutboundPayload {
   const templateKey = input.template_key ? String(input.template_key).trim() : "";
+  const templateName = templateKey ? resolveCloudTemplateName(templateKey) : "";
+  const language = (input.template_language ?? "es_AR").trim() || "es_AR";
   return {
     kind: input.kind,
     phone: input.phone,
     text: input.text,
     template_key: templateKey || null,
-    template_name: templateKey ? resolveCloudTemplateName(templateKey) : null,
+    template_name: templateName || null,
+    template_language: language,
+    template_info: templateName ? `${templateName}|${language}` : null,
+    phone_number_id: input.phone_number_id || WA_CLOUD_PHONE_NUMBER_ID,
     variables: input.variables ?? {},
     conversation_id: input.conversation_id ?? input.phone,
     customer_name: input.customer_name ?? null,

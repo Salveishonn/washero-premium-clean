@@ -8,6 +8,7 @@ import {
   extractGraphError,
   isCloudApiOutboundEnabled,
   isN8nOutboundEnabled,
+  n8nWhatsAppWebhookUrl,
   shouldFallbackTemplateToSessionText,
   toWhatsAppCloudRecipient,
 } from "./whatsapp-cloud.ts";
@@ -32,10 +33,16 @@ Deno.test("Cloud API outbound is off until META credentials are set", () => {
   }
 });
 
-Deno.test("n8n outbound is off until N8N_WHATSAPP_WEBHOOK_URL is set", () => {
+Deno.test("n8n outbound URL defaults to the production gateway", () => {
   const prev = Deno.env.get("N8N_WHATSAPP_WEBHOOK_URL");
   try {
     Deno.env.delete("N8N_WHATSAPP_WEBHOOK_URL");
+    assertEquals(isN8nOutboundEnabled(), true);
+    assertEquals(
+      n8nWhatsAppWebhookUrl(),
+      "https://n8n.flynnpedroa.engineer/webhook/washero-whatsapp-outbound",
+    );
+    Deno.env.set("N8N_WHATSAPP_WEBHOOK_URL", "off");
     assertEquals(isN8nOutboundEnabled(), false);
   } finally {
     if (prev == null) Deno.env.delete("N8N_WHATSAPP_WEBHOOK_URL");
@@ -107,7 +114,7 @@ Deno.test("extractGraphError and cloudApiErrorCode", () => {
   assertEquals(cloudApiErrorCode(401, { code: null, message: "", type: null }), "cloud_api_http_401");
 });
 
-Deno.test("buildN8nOutboundPayload fills template_name", () => {
+Deno.test("buildN8nOutboundPayload fills template_name and Washero phone id", () => {
   const payload = buildN8nOutboundPayload({
     kind: "template",
     phone: "5491161915635",
@@ -116,4 +123,6 @@ Deno.test("buildN8nOutboundPayload fills template_name", () => {
   });
   assertEquals(payload.template_name, "operator_on_the_way");
   assertEquals(payload.kind, "template");
+  assertEquals(payload.template_info, "operator_on_the_way|es_AR");
+  assertEquals(payload.phone_number_id, "1128142377056954");
 });
