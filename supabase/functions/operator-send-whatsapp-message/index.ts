@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       {
         ok: false,
         status: "template_not_configured",
-        message: `Plantilla Botmaker "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
+        message: `Plantilla WhatsApp "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
         template_key: templateDef.templateKey,
       },
       422,

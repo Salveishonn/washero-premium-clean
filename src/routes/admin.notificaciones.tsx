@@ -128,7 +128,6 @@ function NotificacionesPage() {
         .from("communication_logs")
         .select("*")
         .eq("channel", "whatsapp")
-        .eq("provider", "botmaker")
         .eq("direction", "outbound")
         .order("created_at", { ascending: false })
         .limit(100);
@@ -163,12 +162,12 @@ function NotificacionesPage() {
     onSuccess: (r) => {
       if (!r.ok) {
         const msg =
-          r.error === "missing_botmaker_token"
-            ? "Falta BOTMAKER_API_TOKEN en el servidor."
+          r.error === "missing_botmaker_token" || r.error === "missing_meta_credentials"
+            ? "Faltan credenciales de WhatsApp en el servidor."
             : r.error ?? "No se pudo enviar.";
         toast.error(msg);
       } else {
-        toast.success("Mensaje enviado por Botmaker.");
+        toast.success("Mensaje enviado por WhatsApp.");
       }
       qc.invalidateQueries({ queryKey: ["communication_logs"] });
       diagnostics.refetch();
@@ -178,6 +177,10 @@ function NotificacionesPage() {
 
   const d = diagnostics.data;
   const tokenOk = d?.botmaker_api_token_configured ?? false;
+  const outboundReady =
+    Boolean(d?.outbound_whatsapp?.cloud_api_configured) ||
+    Boolean(d?.outbound_whatsapp?.n8n_outbound_configured) ||
+    tokenOk;
 
   return (
     <div className="space-y-6">
@@ -186,11 +189,21 @@ function NotificacionesPage() {
           <Bell className="h-5 w-5" /> Notificaciones WhatsApp
         </h1>
         <p className="text-sm text-muted-foreground">
-          Automatización saliente vía Botmaker. Los fallos no bloquean reservas ni pagos.
+          Automatización saliente por WhatsApp Cloud API. Los fallos no bloquean reservas ni pagos.
         </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">WhatsApp Cloud API</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Badge variant={d?.outbound_whatsapp?.cloud_api_configured ? "default" : "destructive"}>
+              {d?.outbound_whatsapp?.cloud_api_configured ? "Configurada" : "No configurada"}
+            </Badge>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Token Botmaker API</CardTitle>
@@ -309,7 +322,7 @@ function NotificacionesPage() {
         <CardContent>
           <Button
             type="button"
-            disabled={reminders.isPending || !tokenOk}
+            disabled={reminders.isPending || !outboundReady}
             onClick={() => reminders.mutate()}
           >
             {reminders.isPending ? (
@@ -319,9 +332,9 @@ function NotificacionesPage() {
             )}
             Enviar recordatorios de mañana
           </Button>
-          {!tokenOk && (
+          {!outboundReady && (
             <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-              Configurá <code>BOTMAKER_API_TOKEN</code> en Supabase para habilitar envíos.
+              Configurá <code>META_ACCESS_TOKEN</code> y <code>META_PHONE_NUMBER_ID</code> en las Edge Functions.
             </p>
           )}
         </CardContent>
@@ -330,7 +343,7 @@ function NotificacionesPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Prueba manual</CardTitle>
-          <CardDescription>Envía un mensaje de prueba vía Botmaker (no expone el token).</CardDescription>
+          <CardDescription>Envía un mensaje de prueba por WhatsApp (no expone el token).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 max-w-lg">
           <div className="space-y-1">
@@ -451,6 +464,7 @@ function NotificacionesPage() {
                 <thead>
                   <tr className="border-b text-left text-xs text-muted-foreground">
                     <th className="py-2 pr-2">Fecha</th>
+                    <th className="py-2 pr-2">Proveedor</th>
                     <th className="py-2 pr-2">Estado</th>
                     <th className="py-2 pr-2">Plantilla</th>
                     <th className="py-2 pr-2">Teléfono</th>
@@ -466,6 +480,9 @@ function NotificacionesPage() {
                       <tr key={l.id} className="border-b border-border/40 align-top">
                         <td className="py-2 pr-2 whitespace-nowrap text-xs">
                           {new Date(l.created_at).toLocaleString("es-AR")}
+                        </td>
+                        <td className="py-2 pr-2 text-xs font-mono">
+                          {l.provider ?? "—"}
                         </td>
                         <td className="py-2 pr-2">
                           <Badge

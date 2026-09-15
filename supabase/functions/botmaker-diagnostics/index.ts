@@ -68,9 +68,8 @@ async function status() {
 
   const { data: outboundLogs } = await admin
     .from("communication_logs")
-    .select("id, created_at, message_text, raw_payload")
+    .select("id, created_at, message_text, raw_payload, provider")
     .eq("channel", "whatsapp")
-    .eq("provider", "botmaker")
     .eq("direction", "outbound")
     .gte("created_at", since7d)
     .order("created_at", { ascending: false })
@@ -104,6 +103,8 @@ async function status() {
       channel_id_configured: templateConfig.channel_id_configured,
       chat_channel_number: templateConfig.chat_channel_number,
       chat_channel_number_configured: templateConfig.chat_channel_number_configured,
+      cloud_api_configured: templateConfig.cloud_api_configured,
+      n8n_outbound_configured: templateConfig.n8n_outbound_configured,
       sent_last_24h: sent24h,
       sent_last_7d: sent7d,
       last_sent: lastOutboundSent
@@ -115,6 +116,7 @@ async function status() {
               ((lastOutboundSent.raw_payload as Record<string, unknown>)?.botmaker_rule_name_or_id as string) ??
               null,
             send_mode: ((lastOutboundSent.raw_payload as Record<string, unknown>)?.send_mode as string) ?? null,
+            provider: lastOutboundSent.provider ?? null,
           }
         : null,
       last_template_sent: lastTemplateSent
