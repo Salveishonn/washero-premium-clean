@@ -129,13 +129,13 @@ export async function deliverInvoiceForBooking(
     const sent = await sendResendEmail({ to: email, subject, html, text });
     await admin.from("communication_logs").insert({
       booking_id: bookingId,
-      invoice_id: invoice.id,
       provider: "resend",
       channel: "email",
       direction: "outbound",
       message_text: subject,
       raw_payload: {
         template_key: "invoice_email",
+        invoice_id: invoice.id,
         status: sent.ok ? "sent" : "failed",
         to: email,
         provider_id: sent.id ?? null,

@@ -166,3 +166,21 @@ export function buildOperatorTemplateLogPreview(
   const firstName = operatorFirstName(customerName);
   return `Template ${templateKey} enviado a ${firstName}`;
 }
+
+/** Customer-facing copy used as Cloud API session-text fallback when a template is missing. */
+export function buildOperatorCustomerFacingText(
+  action: OperatorWhatsappAction,
+  booking: OperatorBookingContext,
+  opts?: { etaMinutes?: number; receiptUrl?: string | null },
+): string {
+  const def = getOperatorTemplate(action);
+  const eta = Number(opts?.etaMinutes ?? 20);
+  return def.buildMessage({
+    firstName: operatorFirstName(booking.customer_name),
+    bookingTime: formatOperatorTime(booking.scheduled_time),
+    bookingDate: formatOperatorDate(booking.scheduled_date),
+    address: formatOperatorAddress(booking),
+    eta: Number.isFinite(eta) && eta > 0 ? Math.round(eta) : 20,
+    receiptUrl: opts?.receiptUrl ?? null,
+  });
+}

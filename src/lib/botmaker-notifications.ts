@@ -11,6 +11,8 @@ export type BotmakerDiagnosticsStatus = {
     channel_id_configured?: boolean;
     chat_channel_number?: string | null;
     chat_channel_number_configured?: boolean;
+    cloud_api_configured?: boolean;
+    n8n_outbound_configured?: boolean;
     sent_last_24h: number;
     sent_last_7d: number;
     last_sent: {
@@ -18,6 +20,7 @@ export type BotmakerDiagnosticsStatus = {
       message_preview: string;
       template_key: string | null;
       send_mode?: string | null;
+      provider?: string | null;
     } | null;
     last_template_sent?: {
       created_at: string;

@@ -10,6 +10,7 @@ import {
   getWhatsappActionGroups,
   getWorkflowPhase,
   invokeOperatorSendWhatsapp,
+  operatorWhatsappErrorMessage,
   type OperatorBooking,
   type OperatorWhatsappAction,
   type OperatorWorkflowPhase,
@@ -19,13 +20,7 @@ import { cn } from "@/lib/utils";
 const ETA_OPTIONS = [15, 20, 30] as const;
 
 function actionErrorMessage(status?: string, message?: string) {
-  if (status === "booking_forbidden") {
-    return "No podés enviar mensajes para esta reserva.";
-  }
-  if (status === "template_not_configured") {
-    return message ?? "Plantilla Botmaker no configurada.";
-  }
-  return message ?? "No pudimos enviar el WhatsApp. Revisá notificaciones/admin.";
+  return operatorWhatsappErrorMessage({ status, message });
 }
 
 type Props = {
@@ -136,7 +131,7 @@ export function OperatorWhatsappActions({
   const content = (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Mensajes preaprobados vía Botmaker. No se envía texto libre desde la app.
+        Mensajes preaprobados por WhatsApp. No se envía texto libre desde la app.
       </p>
 
       {showEtaPicker ? (
