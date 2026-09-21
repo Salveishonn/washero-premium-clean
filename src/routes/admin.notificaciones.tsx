@@ -208,11 +208,13 @@ function NotificacionesPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Token Botmaker API</CardTitle>
+            <CardTitle className="text-sm font-medium">Gateway n8n</CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant={tokenOk ? "default" : "destructive"}>
-              {tokenOk ? "Configurado" : "No configurado"}
+            <Badge
+              variant={d?.outbound_whatsapp?.n8n_outbound_configured ? "default" : "destructive"}
+            >
+              {d?.outbound_whatsapp?.n8n_outbound_configured ? "Configurado" : "No configurado"}
             </Badge>
           </CardContent>
         </Card>
@@ -246,7 +248,7 @@ function NotificacionesPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Configuración template Botmaker</CardTitle>
+          <CardTitle className="text-base">Envío por n8n / Cloud API</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1 text-xs text-muted-foreground">
           <p>
@@ -261,9 +263,6 @@ function NotificacionesPage() {
           <p>
             Channel ID:{" "}
             <code>{d?.outbound_whatsapp?.channel_id ?? "—"}</code>
-            {!d?.outbound_whatsapp?.channel_id_configured && (
-              <span className="ml-2 text-amber-700 dark:text-amber-400">(falta BOTMAKER_CHANNEL_ID)</span>
-            )}
           </p>
         </CardContent>
       </Card>

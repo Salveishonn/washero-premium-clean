@@ -107,13 +107,9 @@ export function InvalidEventsPanel({
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <p className="text-muted-foreground">
-          {invalidCount} evento(s) rechazados. Último: {formatInboxWhen(lastInvalid)}. Revisá que{" "}
-          <code className="text-xs">auth-bm-token</code> coincida con{" "}
-          <code className="text-xs">BOTMAKER_WEBHOOK_SECRET</code>.
+          {invalidCount} evento(s) históricos rechazados. Último: {formatInboxWhen(lastInvalid)}. El
+          webhook de Botmaker ya no recibe tráfico; el bot vive en n8n.
         </p>
-        <Button asChild size="sm" variant="outline">
-          <Link to="/admin/botmaker">Configuración Botmaker</Link>
-        </Button>
         {isLoading && <Loader2 className="h-5 w-5 animate-spin" />}
         {isError && <p className="text-destructive">Error al cargar eventos.</p>}
         {!isLoading && !isError && events.length === 0 && (
@@ -225,24 +221,6 @@ export function ConversationDetail({
     return { summary, confirmation, parsedLocal, raw };
   }, [messages.data, bookingRequest]);
 
-  const reprocess = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("botmaker-reprocess-conversation", {
-        body: { conversation_id: conversation.id },
-      });
-      if (error) throw error;
-      if (data?.ok === false) throw new Error(data.error ?? "No se pudo reprocesar");
-      return data;
-    },
-    onSuccess: (data) => {
-      if (data?.auto_booking_success) toast.success("Reserva creada automáticamente");
-      else if (data?.processed) toast.success("Solicitud creada para revisión");
-      else toast.warning(data?.fallback_reason ?? "No se detectó resumen + confirmación");
-      qc.invalidateQueries({ queryKey: ["botmaker"] });
-    },
-    onError: (e: Error) => toast.error(e.message ?? "Error al reprocesar"),
-  });
-
   const saveAssignment = useMutation({
     mutationFn: async (patch: { status?: AssignmentStatus; notes?: string }) => {
       const payload = {
@@ -307,15 +285,6 @@ export function ConversationDetail({
               ))}
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => reprocess.mutate()}
-            disabled={reprocess.isPending}
-          >
-            {reprocess.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-            Reprocesar reserva
-          </Button>
         </div>
       </CardHeader>
 

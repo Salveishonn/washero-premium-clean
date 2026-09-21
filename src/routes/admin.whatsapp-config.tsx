@@ -31,7 +31,8 @@ function WhatsappConfigPage() {
 
       <Card className="border-dashed">
         <CardContent className="p-4 text-sm text-muted-foreground">
-          El número WhatsApp comercial se administra en Meta / n8n (Phone Number ID 1327924187062435). Desactivá el agente de Botmaker al cortar.
+          El número WhatsApp comercial se administra en Meta y en n8n
+          (https://n8n.flynnpedroa.engineer, Phone Number ID 1128142377056954).
         </CardContent>
       </Card>
     </div>

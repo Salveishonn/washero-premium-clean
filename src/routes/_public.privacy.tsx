@@ -123,7 +123,7 @@ function PrivacyPolicyPage() {
             <li>Infraestructura y base de datos (Supabase).</li>
             <li>Hosting del sitio (Vercel).</li>
             <li>Pagos (Mercado Pago, cuando corresponde).</li>
-            <li>Mensajería WhatsApp (Botmaker y/o Meta WhatsApp Business Platform).</li>
+            <li>Mensajería WhatsApp (Meta WhatsApp Business Platform, operada desde n8n).</li>
             <li>Mapas / geolocalización de direcciones (Google Maps / Places), cuando usás el
               buscador de dirección en la reserva.</li>
             <li>Email transaccional de comprobantes (Resend), cuando está habilitado.</li>

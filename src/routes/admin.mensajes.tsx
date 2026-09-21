@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, MessageSquare, Phone, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -225,9 +225,6 @@ function MensajesPage() {
           </div>
           <Button size="sm" variant="ghost" className="h-8" onClick={() => setFilter("invalid_token")}>
             Ver eventos
-          </Button>
-          <Button asChild size="sm" variant="outline" className="h-8">
-            <Link to="/admin/botmaker">Configuración Botmaker</Link>
           </Button>
         </div>
       )}
