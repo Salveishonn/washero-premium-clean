@@ -1,15 +1,24 @@
-// Outbound WhatsApp via Botmaker API (server-side only), with an n8n Cloud API gateway
-// when N8N_WHATSAPP_WEBHOOK_URL is set. Botmaker remains the fallback if the env is empty.
+// Outbound WhatsApp: Cloud API first (when META credentials are set), then n8n gateway,
+// then Botmaker as last-resort fallback. Botmaker production tokens currently 401.
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { normalizePhone } from "./botmaker-phone.ts";
 import {
+  buildCloudApiTemplatePayload,
+  buildCloudApiTextPayload,
   buildN8nOutboundPayload,
+  cloudApiErrorCode,
+  cloudMessagesUrl,
   extractCloudProviderMessageId,
+  extractGraphError,
+  isCloudApiOutboundEnabled,
   isN8nOutboundEnabled,
   isWaCloudTemplateKey,
+  loadCloudApiConfig,
   n8nWhatsAppWebhookHeaderName,
-  n8nWhatsAppWebhookSecret,
   n8nWhatsAppWebhookUrl,
+  resolveN8nWhatsAppWebhookSecret,
+  shouldFallbackTemplateToSessionText,
+  type CloudApiConfig,
 } from "./whatsapp-cloud.ts";
 
 export type OutboundLogStatus = "pending" | "sent" | "failed" | "skipped";
@@ -429,7 +438,7 @@ async function insertCommunicationLog(
   row: {
     status: OutboundLogStatus;
     input: SendBotmakerMessageInput;
-    provider?: "botmaker" | "n8n";
+    provider?: string;
     provider_message_id?: string | null;
     error?: string | null;
     request?: LoggedHttpRequest | null;
@@ -473,18 +482,153 @@ async function insertCommunicationLog(
   return data?.id ?? null;
 }
 
+const CLOUD_API_TIMEOUT_MS = 20_000;
 const N8N_GATEWAY_TIMEOUT_MS = 10_000;
+
+function outboundKind(input: SendBotmakerMessageInput): "template" | "text" {
+  if (input.send_mode === "text") return "text";
+  if (input.send_mode === "template" || isWaCloudTemplateKey(input.template_key ?? "")) {
+    return "template";
+  }
+  return "text";
+}
+
+async function sendViaCloudApi(
+  admin: SupabaseClient,
+  input: SendBotmakerMessageInput & { variables?: Record<string, unknown> },
+  cfg: CloudApiConfig = loadCloudApiConfig(),
+): Promise<SendBotmakerMessageResult> {
+  const phone = normalizeArgentinaWhatsAppPhone(input.phone) ?? input.phone;
+  const kind = outboundKind(input);
+  const payload = kind === "template" && input.template_key
+    ? buildCloudApiTemplatePayload({
+      to: phone,
+      templateKey: input.template_key,
+      variables: input.variables ?? {},
+    })
+    : buildCloudApiTextPayload({ to: phone, text: input.message });
+  const url = cloudMessagesUrl(cfg);
+  const httpRequest: LoggedHttpRequest = {
+    url,
+    path: `/${cfg.phoneNumberId}/messages`,
+    method: "POST",
+    payload,
+    headers: ["Authorization", "Content-Type"],
+  };
+
+  const logInput = { ...input, phone };
+  const logMeta = {
+    variables_preview: input.variables ?? null,
+  };
+  const controller = new AbortController();
+
+  try {
+    const timer = setTimeout(() => controller.abort(), CLOUD_API_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    const httpResponse = await readHttpResponse(res);
+    const graph = extractGraphError(httpResponse.body);
+    if (!res.ok) {
+      const err = cloudApiErrorCode(res.status, graph);
+      console.error("[botmaker-outbound] cloud api send failed", {
+        status: res.status,
+        error: err,
+        graph_message: graph.message.slice(0, 300),
+      });
+      const r: SendBotmakerMessageResult = {
+        ok: false,
+        status: "failed",
+        error: err,
+        request: httpRequest,
+        response: httpResponse,
+      };
+      r.log_id = await insertCommunicationLog(admin, {
+        status: "failed",
+        provider: "whatsapp",
+        input: logInput,
+        error: err,
+        request: httpRequest,
+        response: httpResponse,
+        ...logMeta,
+      });
+      return r;
+    }
+    const provider_message_id = extractCloudProviderMessageId(httpResponse.body) ??
+      extractProviderMessageId(httpResponse.body);
+    const r: SendBotmakerMessageResult = {
+      ok: true,
+      status: "sent",
+      provider_message_id,
+      request: httpRequest,
+      response: httpResponse,
+    };
+    r.log_id = await insertCommunicationLog(admin, {
+      status: "sent",
+      provider: "whatsapp",
+      input: logInput,
+      provider_message_id,
+      request: httpRequest,
+      response: httpResponse,
+      ...logMeta,
+    });
+    return r;
+  } catch (e) {
+    const timedOut = isFetchTimeout(e, controller.signal);
+    const err = timedOut ? "cloud_api_timeout" : "cloud_api_network_error";
+    const message = String((e as Error)?.message ?? e);
+    console.error("[botmaker-outbound] cloud api exception", err, message);
+    const httpResponse: LoggedHttpResponse = {
+      status: 0,
+      statusText: timedOut ? "timeout" : "network_error",
+      bodyText: message,
+      body: null,
+    };
+    const r: SendBotmakerMessageResult = {
+      ok: false,
+      status: "failed",
+      error: err,
+      request: httpRequest,
+      response: httpResponse,
+    };
+    r.log_id = await insertCommunicationLog(admin, {
+      status: "failed",
+      provider: "whatsapp",
+      input: logInput,
+      error: err,
+      request: httpRequest,
+      response: httpResponse,
+      fetch_error: toLoggedFetchError(e),
+      ...logMeta,
+    });
+    return r;
+  }
+}
 
 async function sendViaN8n(
   admin: SupabaseClient,
-  input: SendBotmakerMessageInput & { variables?: Record<string, unknown> },
+  input: SendBotmakerMessageInput & {
+    variables?: Record<string, unknown>;
+    n8nUrl?: string;
+    n8nSecret?: string;
+  },
 ): Promise<SendBotmakerMessageResult> {
   const phone = normalizeArgentinaWhatsAppPhone(input.phone) ?? input.phone;
-  const kind = input.send_mode === "template" || isWaCloudTemplateKey(input.template_key ?? "")
-    ? "template"
-    : "text";
+  const kind = outboundKind(input);
   const payload = buildN8nOutboundPayload({
-    kind: kind === "template" ? "template" : "text",
+    kind,
     phone,
     text: input.message,
     template_key: input.template_key,
@@ -493,8 +637,8 @@ async function sendViaN8n(
     customer_name: input.customer_name ?? null,
     booking_id: input.booking_id ?? null,
   });
-  const url = n8nWhatsAppWebhookUrl();
-  const secret = n8nWhatsAppWebhookSecret();
+  const url = input.n8nUrl ?? n8nWhatsAppWebhookUrl();
+  const secret = input.n8nSecret ?? "";
   const headerName = n8nWhatsAppWebhookHeaderName();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (secret) {
@@ -610,8 +754,62 @@ async function sendViaN8n(
   }
 }
 
+async function sendViaPreferredTransport(
+  admin: SupabaseClient,
+  input: SendBotmakerMessageInput & { variables?: Record<string, unknown> },
+): Promise<SendBotmakerMessageResult | null> {
+  if (isCloudApiOutboundEnabled()) {
+    const result = await sendViaCloudApi(admin, input);
+    const sessionText = (input.message ?? "").trim();
+    if (
+      !result.ok &&
+      outboundKind(input) === "template" &&
+      sessionText &&
+      shouldFallbackTemplateToSessionText({
+        httpStatus: result.response?.status ?? 0,
+        graph: extractGraphError(result.response?.body ?? null),
+        error: result.error,
+      })
+    ) {
+      console.warn("[botmaker-outbound] cloud template missing; falling back to session text", {
+        template_key: input.template_key ?? null,
+        error: result.error ?? null,
+      });
+      return await sendViaCloudApi(admin, { ...input, send_mode: "text", template_key: input.template_key });
+    }
+    return result;
+  }
+  const n8nUrl = n8nWhatsAppWebhookUrl();
+  const n8nSecret = n8nUrl ? await resolveN8nWhatsAppWebhookSecret() : "";
+  if (n8nUrl && n8nSecret) {
+    const result = await sendViaN8n(admin, { ...input, n8nUrl, n8nSecret });
+    const sessionText = (input.message ?? "").trim();
+    const status = result.response?.status ?? 0;
+    if (
+      !result.ok &&
+      outboundKind(input) === "template" &&
+      sessionText &&
+      status !== 401 &&
+      status !== 403
+    ) {
+      console.warn("[botmaker-outbound] n8n template failed; falling back to session text", {
+        template_key: input.template_key ?? null,
+        error: result.error ?? null,
+      });
+      return await sendViaN8n(admin, {
+        ...input,
+        send_mode: "text",
+        n8nUrl,
+        n8nSecret,
+      });
+    }
+    return result;
+  }
+  return null;
+}
+
 /**
- * Sends a WhatsApp text via Botmaker. Never throws — failures are logged.
+ * Sends a WhatsApp text via Cloud API / n8n / Botmaker. Never throws — failures are logged.
  * Adjust BOTMAKER_SEND_PATH / payload shape in one place if Botmaker changes API.
  */
 export async function sendBotmakerWhatsApp(
@@ -637,7 +835,7 @@ export async function sendBotmakerWhatsApp(
     return r;
   }
 
-  if (!message && !input.template_key) {
+  if (!message) {
     const r: SendBotmakerMessageResult = {
       ok: false,
       status: "skipped",
@@ -649,9 +847,13 @@ export async function sendBotmakerWhatsApp(
     return r;
   }
 
-  if (isN8nOutboundEnabled()) {
-    return await sendViaN8n(admin, { ...input, phone, message });
-  }
+  const preferred = await sendViaPreferredTransport(admin, {
+    ...input,
+    phone,
+    message,
+    send_mode: input.send_mode ?? "text",
+  });
+  if (preferred) return preferred;
 
   const token = Deno.env.get("BOTMAKER_API_TOKEN") ?? "";
   if (!token) {
@@ -789,6 +991,7 @@ function normalizeSendPath(sendPath: string): string {
 export function getBotmakerTemplateSendDiagnostics() {
   const { sendMode, sendPath, templateBaseUrl, channelId, chatChannelNumber } =
     resolveTemplateSendConfig();
+  const cloud = loadCloudApiConfig();
   return {
     template_send_mode: sendMode,
     template_send_path: sendPath,
@@ -797,6 +1000,8 @@ export function getBotmakerTemplateSendDiagnostics() {
     channel_id_configured: !!channelId,
     chat_channel_number: chatChannelNumber || null,
     chat_channel_number_configured: !!chatChannelNumber,
+    cloud_api_configured: isCloudApiOutboundEnabled(cloud),
+    n8n_outbound_configured: isN8nOutboundEnabled(),
   };
 }
 
@@ -992,14 +1197,13 @@ export async function sendBotmakerTemplateMessage(
     return r;
   }
 
-  if (isN8nOutboundEnabled()) {
-    return await sendViaN8n(admin, {
-      ...logInput,
-      phone,
-      send_mode: "template",
-      variables: variablesPreview,
-    });
-  }
+  const preferred = await sendViaPreferredTransport(admin, {
+    ...logInput,
+    phone,
+    send_mode: "template",
+    variables: variablesPreview,
+  });
+  if (preferred) return preferred;
 
   if ((useTriggerIntent || useIntentV2) && !ruleNameOrId) {
     const r: SendBotmakerMessageResult = {
@@ -1171,7 +1375,6 @@ export async function hasOutboundTemplateLog(
     .select("id, raw_payload, created_at")
     .eq("booking_id", bookingId)
     .eq("channel", "whatsapp")
-    .in("provider", ["botmaker", "n8n"])
     .eq("direction", "outbound")
     .order("created_at", { ascending: false })
     .limit(20);
