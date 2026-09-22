@@ -1,5 +1,9 @@
 // Read-only operator booking detail (bookings + booking_units). No writes.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import {
+  BOOKING_OPERATION_SELECT,
+  classifyBookingOperationQuery,
+} from "../_shared/booking-operations-read.ts";
 import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
 
 const corsHeaders = {
@@ -97,6 +101,36 @@ function sanitizeUnit(row: Record<string, unknown>) {
   };
 }
 
+async function loadBookingOperation(bookingId: string) {
+  const { data, error } = await admin
+    .from("booking_operations")
+    .select(BOOKING_OPERATION_SELECT)
+    .eq("booking_id", bookingId)
+    .maybeSingle();
+
+  const classified = classifyBookingOperationQuery({
+    data: data && typeof data === "object" ? data as Record<string, unknown> : null,
+    error,
+  });
+
+  if (!classified.ok) {
+    console.error("[operator-booking-detail] operation fetch", classified.error);
+    throw classified.error;
+  }
+
+  if (classified.operation_state === "schema_unavailable") {
+    console.warn(
+      "[operator-booking-detail] booking_operations unavailable; returning operation=null",
+      error?.code,
+      error?.message,
+    );
+  } else if (classified.operation_state === "row_missing") {
+    console.warn("[operator-booking-detail] booking_operations row missing", bookingId);
+  }
+
+  return classified;
+}
+
 function canOperatorReadBooking(
   booking: { assigned_operator_id: string | null; scheduled_date: string },
   gate: { role: string | null; staffId: string | null },
@@ -185,10 +219,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    const loaded = await loadBookingOperation(bookingId);
+
     return json({
       ok: true,
       booking: sanitizeBooking(booking as Record<string, unknown>),
       units: units.map(sanitizeUnit),
+      operation: loaded.operation,
+      operation_state: loaded.operation_state,
     });
   } catch (e) {
     console.error("[operator-booking-detail]", e);

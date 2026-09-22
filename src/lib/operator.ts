@@ -1,5 +1,33 @@
 import { supabase } from "@/integrations/supabase/client";
 import { bookingStatusLabels, paymentStatusLabels } from "@/lib/booking-badges";
+import {
+  buildOperatorCommandBody,
+  normalizeBookingOperation,
+  normalizeOperationState,
+  operatorUpdateFromInvokeResult,
+  type BookingOperationSnapshot,
+  type BookingOperationState,
+  type OperatorCommandIntent,
+} from "@/lib/operator-lifecycle";
+
+export type {
+  BookingOperationPhase,
+  BookingOperationSnapshot,
+  BookingOperationState,
+  OperatorCommandIntent,
+  OperatorDetailUiMode,
+  OperatorLifecycleCommand,
+} from "@/lib/operator-lifecycle";
+export {
+  beginCompleteWashIntent,
+  buildOperatorCommandBody,
+  canOperatorCollectCash,
+  createOperatorCommandIntent,
+  hasBookingOperation,
+  mapOperatorCommandError,
+  resolveOperatorDetailMode,
+  withCompleteWashPayment,
+} from "@/lib/operator-lifecycle";
 
 export type OperatorProfile = {
   staff_id: string;
@@ -635,8 +663,38 @@ export async function invokeOperatorUpdateBooking(payload: {
   mark_paid?: boolean;
 }): Promise<OperatorUpdateResponse> {
   const { data, error } = await supabase.functions.invoke("operator-update-booking", { body: payload });
-  if (error) return { ok: false, status: "server_error", message: error.message };
-  return (data ?? { ok: false, status: "server_error" }) as OperatorUpdateResponse;
+  const payloadBody = await readFunctionsInvokePayload(data, error);
+  return operatorUpdateFromInvokeResult({
+    data: payloadBody,
+    errorMessage: error?.message ?? null,
+  }) as OperatorUpdateResponse;
+}
+
+export async function invokeOperatorCommand(
+  intent: OperatorCommandIntent,
+): Promise<OperatorUpdateResponse> {
+  const { data, error } = await supabase.functions.invoke("operator-update-booking", {
+    body: buildOperatorCommandBody(intent),
+  });
+  const payloadBody = await readFunctionsInvokePayload(data, error);
+  return operatorUpdateFromInvokeResult({
+    data: payloadBody,
+    errorMessage: error?.message ?? null,
+  }) as OperatorUpdateResponse;
+}
+
+async function readFunctionsInvokePayload(data: unknown, error: unknown): Promise<unknown> {
+  if (data != null && typeof data === "object") return data;
+  if (!error || typeof error !== "object") return null;
+  const ctx = "context" in error ? (error as { context?: unknown }).context : undefined;
+  if (ctx && typeof ctx === "object" && ctx !== null && "json" in ctx && typeof (ctx as { json: unknown }).json === "function") {
+    try {
+      return await (ctx as { json: () => Promise<unknown> }).json();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function invokeOperatorSendWhatsapp(payload: {
@@ -682,6 +740,8 @@ function mapOperatorDetailError(status?: string, message?: string, invokeError?:
 export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
   booking: OperatorBooking | null;
   units: OperatorBookingUnit[];
+  operation: BookingOperationSnapshot | null;
+  operationState: BookingOperationState | null;
   error: string | null;
   status?: string;
 }> {
@@ -690,6 +750,8 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
     return {
       booking: null,
       units: [],
+      operation: null,
+      operationState: null,
       error: OPERATOR_DETAIL_ERROR_MESSAGES.missing_booking_id,
       status: "missing_booking_id",
     };
@@ -700,26 +762,47 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
   });
 
   if (error) {
+    const payload = await readFunctionsInvokePayload(data, error);
+    if (payload && typeof payload === "object" && (payload as { ok?: boolean }).ok === true) {
+      return normalizeOperatorDetailSuccess(payload);
+    }
     return {
       booking: null,
       units: [],
+      operation: null,
+      operationState: null,
       error: mapOperatorDetailError(undefined, undefined, error.message),
       status: "server_error",
     };
   }
 
+  return normalizeOperatorDetailSuccess(data ?? {});
+}
+
+function normalizeOperatorDetailSuccess(data: unknown): {
+  booking: OperatorBooking | null;
+  units: OperatorBookingUnit[];
+  operation: BookingOperationSnapshot | null;
+  operationState: BookingOperationState | null;
+  error: string | null;
+  status?: string;
+} {
   const body = (data ?? {}) as {
     ok?: boolean;
     status?: string;
     message?: string;
     booking?: unknown;
     units?: unknown;
+    operation?: unknown;
+    operation_state?: unknown;
   };
 
   if (!body.ok) {
     return {
       booking: null,
       units: [],
+      operation: null,
+      operationState: null,
       error: mapOperatorDetailError(body.status, body.message),
       status: body.status ?? "server_error",
     };
@@ -730,6 +813,8 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
     return {
       booking: null,
       units: [],
+      operation: null,
+      operationState: null,
       error: OPERATOR_DETAIL_ERROR_MESSAGES.server_error,
       status: "server_error",
     };
@@ -738,6 +823,10 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
   return {
     booking,
     units: normalizeOperatorBookingUnits(body.units),
+    operation: normalizeBookingOperation(body.operation),
+    operationState: Object.prototype.hasOwnProperty.call(body, "operation_state")
+      ? normalizeOperationState(body.operation_state)
+      : null,
     error: null,
   };
 }
