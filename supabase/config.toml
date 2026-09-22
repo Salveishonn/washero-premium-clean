@@ -89,3 +89,6 @@ verify_jwt = false
 
 [functions.send-operator-reminder-push]
 verify_jwt = false
+
+[functions.operator-upload-booking-proof]
+verify_jwt = true
