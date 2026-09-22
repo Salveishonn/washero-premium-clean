@@ -6,66 +6,59 @@ import {
 import { readRepoFile } from "./read-repo-file";
 
 /**
- * CONTRACT / SOURCE TEST (Phase 0.5)
+ * CONTRACT / SOURCE TEST (Phase 0.5 + Phase 2 mapping)
  *
- * Freezes today's operator-update-booking transitions before Phase 2 tightens them.
- * Edge Function code is Deno-only; assertions below read that source rather than
- * executing it. UI helpers in src/lib/operator.ts are executable.
+ * UI start eligibility is unchanged. Wash transitions now go through
+ * transition_booking_operation; legacy PWA actions remain mapped.
  */
 const OPERATOR_UPDATE_SOURCE = "supabase/functions/operator-update-booking/index.ts";
-
-function quotedListAfter(source: string, needle: string): string[] {
-  const index = source.indexOf(needle);
-  expect(index, `missing ${needle}`).toBeGreaterThanOrEqual(0);
-  const slice = source.slice(index, index + 180);
-  const list = slice.match(/\[([^\]]+)\]/);
-  expect(list, `no array after ${needle}`).not.toBeNull();
-  return [...list![1].matchAll(/"([^"]+)"/g)].map((item) => item[1]);
-}
+const HELPER = "supabase/functions/_shared/operator-operations.ts";
+const TRANSITION_SQL = "supabase/migrations/20260922140000_operations_transition_api.sql";
 
 describe("operator transition contract", () => {
   const source = readRepoFile(OPERATOR_UPDATE_SOURCE);
+  const helper = readRepoFile(HELPER);
+  const sql = readRepoFile(TRANSITION_SQL);
 
   it("start is allowed from pending, confirmed, needs_review and results in in_progress", () => {
-    expect(quotedListAfter(source, 'if (action === "start")')).toEqual([
-      "pending",
-      "confirmed",
-      "needs_review",
-    ]);
-    expect(source).toContain('booking_status = "in_progress"');
+    expect(helper).toContain('start: { command: "start_wash", legacyMode: false }');
+    expect(sql).toContain("v_new_status := 'in_progress'");
+    expect(sql).toContain("IF v_booking_status IN ('pending', 'confirmed', 'needs_review') THEN");
     expect(canOperatorStartBooking({ booking_status: "pending" })).toBe(true);
     expect(canOperatorStartBooking({ booking_status: "confirmed" })).toBe(true);
     expect(canOperatorStartBooking({ booking_status: "needs_review" })).toBe(true);
   });
 
-  it("start is not idempotent for in_progress (current behavior)", () => {
-    expect(quotedListAfter(source, 'if (action === "start")')).not.toContain("in_progress");
+  it("start is not offered from in_progress in the current PWA", () => {
     expect(canOperatorStartBooking({ booking_status: "in_progress" })).toBe(false);
   });
 
   it("complete currently allows pending, confirmed, needs_review, and in_progress", () => {
-    // Documented current behavior — do not tighten this list in Phase 0.5.
-    expect(quotedListAfter(source, 'if (action === "complete")').sort()).toEqual(
-      ["confirmed", "in_progress", "needs_review", "pending"].sort(),
-    );
-    expect(source).toContain('booking_status = "completed"');
+    expect(helper).toContain('complete: { command: "complete_wash", legacyMode: true }');
+    expect(sql).toContain("p_legacy_mode");
+    expect(sql).toContain("IF v_booking_status IN ('completed', 'cancelled') THEN");
+    expect(sql).toContain("v_new_status := 'completed'");
   });
 
   it("report_issue sets needs_review unless the booking is already cancelled", () => {
-    expect(source).toContain(
-      'booking_status = booking.booking_status === "cancelled" ? "cancelled" : "needs_review"',
-    );
+    expect(helper).toContain('report_issue: { command: "report_incident", legacyMode: true }');
+    expect(sql).toContain("IF v_phase = 'cancelled' OR v_booking_status = 'cancelled' THEN");
+    expect(sql).toContain("v_new_status := 'needs_review'");
+    expect(sql).toContain("p_command = 'report_incident' AND v_legacy");
+    expect(source).toContain('parsed.action === "report_issue"');
+    expect(source).toContain("p_issue_note: issueNoteForRpc");
+    expect(source).toContain("formatOperatorIssueNote");
   });
 
   it("mark_paid is idempotent when already paid and records a manual operator collection otherwise", () => {
-    expect(source).toContain(
-      'const shouldMarkPaid =\n    action === "mark_paid" || (action === "complete" && body.mark_paid === true)',
-    );
+    expect(source).toContain('parsed.action === "mark_paid"');
+    expect(source).toContain('parsed.action === "complete" && parsed.markPaid === true');
+    expect(source).toContain('parsed.command === "complete_wash" && parsed.markPaid === true');
     expect(source).toContain('if (booking.payment_status === "paid")');
     expect(source).toContain('already_paid: true');
     expect(source).toContain('provider: "manual"');
     expect(source).toContain('reason: "operator_collected"');
-    expect(source).toContain("deliverInvoiceForBooking(admin, bookingId)");
+    expect(source).toContain("deliverInvoiceForBooking(admin, input.bookingId)");
   });
 });
 
