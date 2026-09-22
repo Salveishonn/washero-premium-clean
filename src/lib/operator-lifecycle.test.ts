@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BOOKING_OPERATION_PHASES,
   beginCompleteWashIntent,
+  beginProofUploadIntent,
   buildOperatorCommandBody,
   canOperatorCollectCash,
   createOperatorCommandIntent,
@@ -9,11 +10,15 @@ import {
   getLifecycleWorkflow,
   hasBookingOperation,
   mapOperatorCommandError,
+  mapProofUploadError,
   normalizeBookingOperation,
+  normalizeCompletionProofState,
+  normalizeCompletionProofSummary,
   normalizeOperationState,
   operationPhaseLabel,
   operatorUpdateFromInvokeResult,
   resolveOperatorDetailMode,
+  validateClientProofFile,
   withCompleteWashPayment,
   type BookingOperationSnapshot,
 } from "./operator-lifecycle";
@@ -128,9 +133,22 @@ describe("lifecycle CTA decision logic", () => {
     expect(ui.primary).toMatchObject({ kind: "command", command: "start_wash" });
   });
 
-  it("wash_in_progress → complete_wash", () => {
+  it("wash_in_progress without proof → photo flow, not direct complete", () => {
     const ui = workflow("wash_in_progress");
-    expect(ui.primary).toMatchObject({ kind: "command", command: "complete_wash" });
+    expect(ui.primary).toMatchObject({ kind: "open_proof", label: "Finalizar lavado" });
+    expect(ui.primary.kind).not.toBe("command");
+  });
+
+  it("wash_in_progress with proof available → Finalizar servicio", () => {
+    const ui = getLifecycleWorkflow({
+      phase: "wash_in_progress",
+      paymentMethod: "MercadoPago",
+      paymentStatus: "paid",
+      operation: snapshot("wash_in_progress"),
+      completionProofState: "available",
+    });
+    expect(ui.primary).toMatchObject({ kind: "command", command: "complete_wash", label: "Finalizar servicio" });
+    expect(ui.secondary).toMatchObject({ kind: "open_proof", label: "Cambiar foto" });
   });
 
   it("wash_completed → no complete CTA", () => {
@@ -154,10 +172,33 @@ describe("lifecycle CTA decision logic", () => {
     expect(ui.reportIssueLabel).toBe("Actualizar problema");
   });
 
-  it("proof_required → temporary complete_wash", () => {
+  it("proof_required without proof → photo flow", () => {
     const ui = workflow("proof_required");
-    expect(ui.headline).toBe("Finalización pendiente");
+    expect(ui.primary).toMatchObject({ kind: "open_proof" });
+  });
+
+  it("proof_required with proof available → final completion", () => {
+    const ui = getLifecycleWorkflow({
+      phase: "proof_required",
+      paymentMethod: "MercadoPago",
+      paymentStatus: "paid",
+      operation: snapshot("proof_required"),
+      completionProofState: "available",
+    });
     expect(ui.primary).toMatchObject({ kind: "command", command: "complete_wash" });
+  });
+
+  it("proof schema unavailable → no completion CTA", () => {
+    const ui = getLifecycleWorkflow({
+      phase: "wash_in_progress",
+      paymentMethod: "MercadoPago",
+      paymentStatus: "paid",
+      operation: snapshot("wash_in_progress"),
+      completionProofState: "schema_unavailable",
+    });
+    expect(ui.primary.kind).toBe("none");
+    expect(ui.secondary.kind).toBe("none");
+    expect(ui.helper).toMatch(/sistema de evidencia/i);
   });
 });
 
@@ -229,6 +270,9 @@ describe("operator command payload", () => {
     expect(body).not.toHaveProperty("operator_id");
     expect(body).not.toHaveProperty("staff_id");
     expect(body).not.toHaveProperty("admin_override");
+    expect(body).not.toHaveProperty("completion_proof_id");
+    expect(body).not.toHaveProperty("storage_path");
+    expect(body).not.toHaveProperty("content_sha256");
   });
 
   it("keeps one client_event_id for one user intent across mutation attempts", () => {
@@ -261,6 +305,78 @@ describe("complete + mark-paid intent stability", () => {
     const next = beginCompleteWashIntent({ bookingId: "booking-2", existing: previous });
     expect(next.bookingId).toBe("booking-2");
     expect(next.clientEventId).not.toBe(previous.clientEventId);
+  });
+});
+
+describe("client proof validation", () => {
+  it("rejects oversized photos with the operator-facing message", () => {
+    const result = validateClientProofFile({
+      name: "a.jpg",
+      size: 8 * 1024 * 1024 + 1,
+      type: "image/jpeg",
+    } as File);
+    expect(result).toEqual({
+      ok: false,
+      code: "file_too_large",
+      message: "La foto pesa demasiado. El máximo es 8 MB.",
+    });
+  });
+
+  it("maps proof upload statuses to Spanish without raw storage errors", () => {
+    expect(mapProofUploadError("unsupported_file_type")).toBe("Formato de imagen no permitido.");
+    expect(mapProofUploadError("file_too_large")).toBe("La foto pesa demasiado. El máximo es 8 MB.");
+    expect(mapProofUploadError("idempotency_conflict")).toMatch(/forma segura/i);
+    expect(mapProofUploadError("forbidden")).toMatch(/asignado/i);
+    expect(mapProofUploadError("not_assigned")).toMatch(/asignado/i);
+    expect(mapProofUploadError("operation_not_initialized")).toMatch(/estado operativo/i);
+    expect(mapProofUploadError("invalid_status")).toMatch(/foto de finalización/i);
+    expect(mapProofUploadError("invalid_operation_phase")).toMatch(/foto de finalización/i);
+    expect(mapProofUploadError("proof_upload_failed")).toMatch(/guardar la imagen/i);
+    expect(mapProofUploadError("proof_metadata_failed")).toMatch(/registrar la prueba/i);
+  });
+
+  it("omits storage path from proof summaries and ignores unknown states", () => {
+    expect(normalizeCompletionProofState("available")).toBe("available");
+    expect(normalizeCompletionProofState("not-a-state")).toBeNull();
+    expect(
+      normalizeCompletionProofSummary({
+        id: "p1",
+        proof_kind: "completion",
+        mime_type: "image/jpeg",
+        size_bytes: 12,
+        created_at: "2026-09-22T12:00:00.000Z",
+        storage_path: "secret/path.jpg",
+        uploaded_by_staff_id: "op-1",
+      }),
+    ).toEqual({
+      id: "p1",
+      proof_kind: "completion",
+      mime_type: "image/jpeg",
+      size_bytes: 12,
+      created_at: "2026-09-22T12:00:00.000Z",
+    });
+  });
+});
+
+describe("proof upload intent", () => {
+  it("reuses client_upload_id for the same selected file", () => {
+    const file = { name: "a.jpg", size: 12, type: "image/jpeg", lastModified: 1 };
+    const first = beginProofUploadIntent({ bookingId: "booking-1", file });
+    const retry = beginProofUploadIntent({ bookingId: "booking-1", file, existing: first });
+    expect(retry.clientUploadId).toBe(first.clientUploadId);
+  });
+
+  it("issues a new client_upload_id for a retake", () => {
+    const first = beginProofUploadIntent({
+      bookingId: "booking-1",
+      file: { name: "a.jpg", size: 12, type: "image/jpeg", lastModified: 1 },
+    });
+    const retake = beginProofUploadIntent({
+      bookingId: "booking-1",
+      file: { name: "b.jpg", size: 20, type: "image/jpeg", lastModified: 2 },
+      existing: first,
+    });
+    expect(retake.clientUploadId).not.toBe(first.clientUploadId);
   });
 });
 
@@ -300,6 +416,9 @@ describe("operator command error parsing", () => {
     ).toBe("No pudimos cargar el estado operativo. Actualizá e intentá nuevamente.");
     expect(mapOperatorCommandError("idempotency_conflict")).toBe(
       "No pudimos confirmar esta acción de forma segura. Actualizá la reserva.",
+    );
+    expect(mapOperatorCommandError("proof_required")).toBe(
+      "Necesitamos una foto del vehículo terminado antes de finalizar el servicio.",
     );
   });
 

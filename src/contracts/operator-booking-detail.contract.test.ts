@@ -15,7 +15,10 @@ describe("operator-booking-detail operation snapshot", () => {
     expect(source).toContain("units: units.map(sanitizeUnit)");
     expect(source).toContain("operation: loaded.operation");
     expect(source).toContain("operation_state: loaded.operation_state");
+    expect(source).toContain("completion_proof: proof.completion_proof");
+    expect(source).toContain("completion_proof_state: proof.completion_proof_state");
     expect(source).toContain("loadBookingOperation(bookingId)");
+    expect(source).toContain("loadCompletionProof(bookingId, gate)");
   });
 
   it("returns operation=null for missing table or missing row, not arbitrary errors", () => {
@@ -32,13 +35,16 @@ describe("operator-booking-detail operation snapshot", () => {
     expect(source).not.toMatch(/booking_events/);
     expect(readHelper).not.toMatch(/last_error|transition_log|idempotency/);
     expect(source).not.toContain("operation_state: error.message");
+    expect(source).not.toContain("createSignedUrl");
   });
 
   it("loads booking_operations only after canOperatorReadBooking", () => {
     const authCall = source.indexOf("if (!canOperatorReadBooking(booking, gate))");
     const loadCall = source.lastIndexOf("loadBookingOperation(bookingId)");
+    const proofCall = source.indexOf("loadCompletionProof(bookingId, gate)");
     expect(authCall).toBeGreaterThan(0);
     expect(loadCall).toBeGreaterThan(authCall);
+    expect(proofCall).toBeGreaterThan(authCall);
   });
 });
 

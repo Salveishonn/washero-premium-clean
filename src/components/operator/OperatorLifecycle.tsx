@@ -5,22 +5,34 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   LIFECYCLE_STEPPER_STEPS,
+  formatOperationClock,
   getLifecycleWorkflow,
   type BookingOperationSnapshot,
+  type CompletionProofState,
+  type OperatorCompletionProofSummary,
 } from "@/lib/operator-lifecycle";
 
 type Props = {
   operation: BookingOperationSnapshot;
   paymentMethod: string;
   paymentStatus: string;
+  completionProofState?: CompletionProofState | null;
+  completionProof?: OperatorCompletionProofSummary | null;
 };
 
-export function OperatorLifecycle({ operation, paymentMethod, paymentStatus }: Props) {
+export function OperatorLifecycle({
+  operation,
+  paymentMethod,
+  paymentStatus,
+  completionProofState = null,
+  completionProof = null,
+}: Props) {
   const workflow = getLifecycleWorkflow({
     phase: operation.phase,
     paymentMethod,
     paymentStatus,
     operation,
+    completionProofState,
   });
 
   return (
@@ -36,6 +48,14 @@ export function OperatorLifecycle({ operation, paymentMethod, paymentStatus }: P
           ) : null}
         </div>
         <p className="text-sm text-muted-foreground">{workflow.helper}</p>
+        {completionProofState === "available" && completionProof ? (
+          <p className="text-sm font-medium">
+            ✓ Foto de finalización cargada
+            {formatOperationClock(completionProof.created_at)
+              ? ` · Subida ${formatOperationClock(completionProof.created_at)}`
+              : ""}
+          </p>
+        ) : null}
 
         <ol className="grid grid-cols-5 gap-1 pt-1">
           {LIFECYCLE_STEPPER_STEPS.map((step, index) => {

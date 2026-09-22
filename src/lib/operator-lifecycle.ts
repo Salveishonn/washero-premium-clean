@@ -22,6 +22,133 @@ export const BOOKING_OPERATION_STATES = [
 
 export type BookingOperationState = (typeof BOOKING_OPERATION_STATES)[number];
 
+export type CompletionProofState = "available" | "missing" | "schema_unavailable";
+
+export type OperatorCompletionProofSummary = {
+  id: string;
+  proof_kind: "completion";
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+};
+
+export const OPERATOR_PROOF_MAX_BYTES = 8 * 1024 * 1024;
+export const OPERATOR_PROOF_ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif,image/*";
+
+export type OperatorProofIntent = {
+  bookingId: string;
+  clientUploadId: string;
+  fileIdentity: string;
+};
+
+export function proofFileIdentity(file: Pick<File, "name" | "size" | "type" | "lastModified">): string {
+  return `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+}
+
+export function beginProofUploadIntent(input: {
+  bookingId: string;
+  file: Pick<File, "name" | "size" | "type" | "lastModified">;
+  existing?: OperatorProofIntent | null;
+}): OperatorProofIntent {
+  const fileIdentity = proofFileIdentity(input.file);
+  if (
+    input.existing &&
+    input.existing.bookingId === input.bookingId &&
+    input.existing.fileIdentity === fileIdentity
+  ) {
+    return input.existing;
+  }
+  return {
+    bookingId: input.bookingId,
+    clientUploadId: crypto.randomUUID(),
+    fileIdentity,
+  };
+}
+
+export function isHeicLikeProof(file: Pick<File, "name" | "type">): boolean {
+  const mime = file.type.trim().toLowerCase();
+  if (mime === "image/heic" || mime === "image/heif") return true;
+  return /\.(heic|heif)$/i.test(file.name);
+}
+
+export function validateClientProofFile(file: File): { ok: true } | { ok: false; code: string; message: string } {
+  if (!file || file.size <= 0) {
+    return { ok: false, code: "invalid_request", message: "Elegí una foto del vehículo terminado." };
+  }
+  if (file.size > OPERATOR_PROOF_MAX_BYTES) {
+    return {
+      ok: false,
+      code: "file_too_large",
+      message: "La foto pesa demasiado. El máximo es 8 MB.",
+    };
+  }
+  const mime = file.type.trim().toLowerCase();
+  if (mime === "image/svg+xml" || mime === "application/pdf" || mime === "text/html") {
+    return { ok: false, code: "unsupported_file_type", message: "Formato de imagen no permitido." };
+  }
+  if (mime && !mime.startsWith("image/")) {
+    return { ok: false, code: "unsupported_file_type", message: "Formato de imagen no permitido." };
+  }
+  return { ok: true };
+}
+
+export function mapProofUploadError(status?: string | null, message?: string | null): string {
+  const code = String(status ?? "").trim();
+  if (code === "unsupported_file_type" || code === "invalid_mime" || code === "invalid_file") {
+    return "Formato de imagen no permitido.";
+  }
+  if (code === "file_too_large") return "La foto pesa demasiado. El máximo es 8 MB.";
+  if (code === "idempotency_conflict") {
+    return "No pudimos confirmar esta carga de forma segura. Actualizá la reserva.";
+  }
+  if (code === "forbidden" || code === "not_assigned") {
+    return "Este servicio ya no está asignado a tu usuario.";
+  }
+  if (code === "operation_not_initialized") {
+    return "No pudimos cargar el estado operativo. Actualizá e intentá nuevamente.";
+  }
+  if (code === "invalid_status" || code === "invalid_operation_phase") {
+    return "Todavía no se puede cargar la foto de finalización para este servicio.";
+  }
+  if (code === "proof_upload_failed") return "No pudimos guardar la imagen. Intentá nuevamente.";
+  if (code === "proof_metadata_failed") return "No pudimos registrar la prueba. Intentá nuevamente.";
+  const text = (message ?? "").trim();
+  if (text) return text;
+  return "No pudimos cargar la foto. Intentá nuevamente.";
+}
+
+export function formatProofBytes(sizeBytes: number): string {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return "";
+  const mb = sizeBytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+}
+
+export function normalizeCompletionProofState(raw: unknown): CompletionProofState | null {
+  if (raw === "available" || raw === "missing" || raw === "schema_unavailable") return raw;
+  return null;
+}
+
+export function normalizeCompletionProofSummary(raw: unknown): OperatorCompletionProofSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const proofKind = typeof row.proof_kind === "string" ? row.proof_kind.trim() : "";
+  const mimeType = typeof row.mime_type === "string" ? row.mime_type.trim() : "";
+  const createdAt = typeof row.created_at === "string" ? row.created_at.trim() : "";
+  const sizeBytes = Number(row.size_bytes);
+  if (!id || proofKind !== "completion" || !mimeType || !createdAt || !Number.isFinite(sizeBytes)) {
+    return null;
+  }
+  return {
+    id,
+    proof_kind: "completion",
+    mime_type: mimeType,
+    size_bytes: sizeBytes,
+    created_at: createdAt,
+  };
+}
+
 export type OperatorDetailUiMode = "lifecycle" | "legacy" | "row_missing";
 
 export type BookingOperationSnapshot = {
@@ -181,6 +308,11 @@ export type LifecycleActionKind =
       label: string;
       pendingLabel: string;
     }
+  | {
+      kind: "open_proof";
+      label: string;
+      pendingLabel: string;
+    }
   | { kind: "none" };
 
 export type LifecycleWorkflow = {
@@ -225,11 +357,21 @@ const CONTINUE_WASH: LifecycleActionKind = {
   label: "Continuar / iniciar lavado",
   pendingLabel: "Iniciando lavado...",
 };
-const COMPLETE_WASH: LifecycleActionKind = {
+const OPEN_PROOF: LifecycleActionKind = {
+  kind: "open_proof",
+  label: "Finalizar lavado",
+  pendingLabel: "Abriendo...",
+};
+const CHANGE_PHOTO: LifecycleActionKind = {
+  kind: "open_proof",
+  label: "Cambiar foto",
+  pendingLabel: "Abriendo...",
+};
+const COMPLETE_SERVICE: LifecycleActionKind = {
   kind: "command",
   command: "complete_wash",
-  label: "Finalizar lavado",
-  pendingLabel: "Finalizando lavado...",
+  label: "Finalizar servicio",
+  pendingLabel: "Finalizando servicio...",
 };
 const MARK_PAID: LifecycleActionKind = {
   kind: "mark_paid",
@@ -260,6 +402,37 @@ export function operationTimestamps(
     .map(([key, text]) => ({ key, text }));
 }
 
+function completionWorkflow(state: CompletionProofState | null | undefined): {
+  primary: LifecycleActionKind;
+  secondary: LifecycleActionKind;
+  helper: string;
+  headline: string;
+} {
+  if (state === "schema_unavailable") {
+    return {
+      primary: NONE,
+      secondary: NONE,
+      headline: "Evidencia no disponible",
+      helper:
+        "No pudimos cargar el sistema de evidencia. Actualizá la reserva o contactá a coordinación.",
+    };
+  }
+  if (state === "available") {
+    return {
+      primary: COMPLETE_SERVICE,
+      secondary: CHANGE_PHOTO,
+      headline: "Foto de finalización cargada",
+      helper: "Podés finalizar el servicio o cambiar la foto.",
+    };
+  }
+  return {
+    primary: OPEN_PROOF,
+    secondary: NONE,
+    headline: "Foto del vehículo terminado",
+    helper: "Sacá una foto del vehículo terminado para finalizar el servicio.",
+  };
+}
+
 function clockLine(iso: string | null | undefined, text: (clock: string) => string): string | null {
   const clock = formatOperationClock(iso);
   return clock ? text(clock) : null;
@@ -270,6 +443,7 @@ export function getLifecycleWorkflow(input: {
   paymentMethod: string;
   paymentStatus: string;
   operation?: BookingOperationSnapshot | null;
+  completionProofState?: CompletionProofState | null;
 }): LifecycleWorkflow {
   const collectLater = canOperatorCollectCash(input.paymentMethod, input.paymentStatus);
   const timestamps = input.operation ? operationTimestamps(input.operation) : [];
@@ -312,31 +486,34 @@ export function getLifecycleWorkflow(input: {
         stepperIndex: 2,
         timestamps,
       };
-    case "wash_in_progress":
+    case "wash_in_progress": {
+      const completion = completionWorkflow(input.completionProofState);
       return {
         phase: input.phase,
-        headline: "Lavado en curso",
-        helper: "Finalizá el servicio cuando termines. No hace falta foto en este paso.",
-        primary: COMPLETE_WASH,
-        secondary: NONE,
+        headline: completion.headline,
+        helper: completion.helper,
+        primary: completion.primary,
+        secondary: completion.secondary,
         showReportIssue: true,
         reportIssueLabel: REPORT_ISSUE_LABEL,
         stepperIndex: 3,
         timestamps,
       };
-    case "proof_required":
-      // Phase 4 will replace this with mandatory proof upload.
+    }
+    case "proof_required": {
+      const completion = completionWorkflow(input.completionProofState);
       return {
         phase: input.phase,
-        headline: "Finalización pendiente",
-        helper: "Todavía podés finalizar el lavado. La foto de prueba llega en una etapa posterior.",
-        primary: COMPLETE_WASH,
-        secondary: NONE,
+        headline: completion.headline,
+        helper: completion.helper,
+        primary: completion.primary,
+        secondary: completion.secondary,
         showReportIssue: true,
         reportIssueLabel: REPORT_ISSUE_LABEL,
         stepperIndex: 3,
         timestamps,
       };
+    }
     case "wash_completed":
       return {
         phase: input.phase,
@@ -510,6 +687,7 @@ export function extractOperatorCommandErrorCode(input: {
     return "operation_not_initialized";
   }
   if (token === "forbidden" || token === "not_assigned") return "forbidden";
+  if (token === "proof_required") return "proof_required";
   if (token === "already_completed") return "already_completed";
   if (token === "idempotency_conflict") return "idempotency_conflict";
   if (token === "invalid_transition") return "invalid_transition";
@@ -521,6 +699,9 @@ export function mapOperatorCommandError(status?: string, message?: string): stri
   const code = extractOperatorCommandErrorCode({ status, message });
   if (code === "forbidden") {
     return "Este servicio ya no está asignado a tu usuario.";
+  }
+  if (code === "proof_required") {
+    return "Necesitamos una foto del vehículo terminado antes de finalizar el servicio.";
   }
   if (code === "already_completed") {
     return "Este lavado ya fue finalizado.";

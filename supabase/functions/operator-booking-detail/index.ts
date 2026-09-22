@@ -4,6 +4,11 @@ import {
   BOOKING_OPERATION_SELECT,
   classifyBookingOperationQuery,
 } from "../_shared/booking-operations-read.ts";
+import {
+  COMPLETION_PROOF_SELECT,
+  classifyCompletionProofQuery,
+  operatorOwnsCompletionProofFilter,
+} from "../_shared/booking-proof-read.ts";
 import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
 
 const corsHeaders = {
@@ -131,6 +136,42 @@ async function loadBookingOperation(bookingId: string) {
   return classified;
 }
 
+async function loadCompletionProof(
+  bookingId: string,
+  gate: { role: string | null; staffId: string | null },
+) {
+  let query = admin
+    .from("booking_proof_media")
+    .select(COMPLETION_PROOF_SELECT)
+    .eq("booking_id", bookingId)
+    .eq("proof_kind", "completion")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1);
+
+  const ownership = operatorOwnsCompletionProofFilter(gate);
+  if (ownership.restrictToStaffId) {
+    query = query.eq("uploaded_by_staff_id", ownership.restrictToStaffId);
+  } else if (isStrictOperatorRole(gate.role) && !gate.staffId) {
+    return {
+      ok: true as const,
+      completion_proof: null,
+      completion_proof_state: "missing" as const,
+    };
+  }
+
+  const { data, error } = await query.maybeSingle();
+  const classified = classifyCompletionProofQuery({
+    data: data && typeof data === "object" ? data as Record<string, unknown> : null,
+    error,
+  });
+  if (!classified.ok) {
+    console.error("[operator-booking-detail] proof fetch", classified.error);
+    throw classified.error;
+  }
+  return classified;
+}
+
 function canOperatorReadBooking(
   booking: { assigned_operator_id: string | null; scheduled_date: string },
   gate: { role: string | null; staffId: string | null },
@@ -220,6 +261,7 @@ Deno.serve(async (req) => {
     }
 
     const loaded = await loadBookingOperation(bookingId);
+    const proof = await loadCompletionProof(bookingId, gate);
 
     return json({
       ok: true,
@@ -227,6 +269,8 @@ Deno.serve(async (req) => {
       units: units.map(sanitizeUnit),
       operation: loaded.operation,
       operation_state: loaded.operation_state,
+      completion_proof: proof.completion_proof,
+      completion_proof_state: proof.completion_proof_state,
     });
   } catch (e) {
     console.error("[operator-booking-detail]", e);

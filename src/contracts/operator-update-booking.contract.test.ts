@@ -59,6 +59,7 @@ describe("operator transition contract", () => {
     expect(source).toContain('provider: "manual"');
     expect(source).toContain('reason: "operator_collected"');
     expect(source).toContain("deliverInvoiceForBooking(admin, input.bookingId)");
+    expect(helper).toContain('case "proof_required"');
   });
 });
 

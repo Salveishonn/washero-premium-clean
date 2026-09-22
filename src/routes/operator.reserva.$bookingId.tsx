@@ -19,12 +19,14 @@ import { OperatorBookingUnitsSummary } from "@/components/operator/OperatorBooki
 import { OperatorDetailHeader } from "@/components/operator/OperatorDetailHeader";
 import { OperatorLifecycle, OperatorLifecycleRecovery } from "@/components/operator/OperatorLifecycle";
 import { OperatorLifecycleActions } from "@/components/operator/OperatorLifecycleActions";
+import { OperatorCompletionProof } from "@/components/operator/OperatorCompletionProof";
 import { OperatorPriceSummary } from "@/components/operator/OperatorPriceSummary";
 import { OperatorWhatsappActions } from "@/components/operator/OperatorWhatsappActions";
 import { OperatorWorkflowBar } from "@/components/operator/OperatorWorkflowBar";
 import {
   OPERATOR_LAYOUT,
   beginCompleteWashIntent,
+  beginProofUploadIntent,
   canOperatorCollectCash,
   canOperatorStartBooking,
   createOperatorCommandIntent,
@@ -35,9 +37,12 @@ import {
   invokeOperatorCommand,
   invokeOperatorUpdateBooking,
   resolveOperatorDetailMode,
+  uploadOperatorBookingProof,
+  validateClientProofFile,
   whatsappClientUrl,
   withCompleteWashPayment,
   type OperatorCommandIntent,
+  type OperatorProofIntent,
 } from "@/lib/operator";
 import { cn } from "@/lib/utils";
 
@@ -60,13 +65,32 @@ function OperatorReservaDetailPage() {
   const [issueNote, setIssueNote] = useState("");
   const [payDialog, setPayDialog] = useState(false);
   const [pendingComplete, setPendingComplete] = useState<OperatorCommandIntent | null>(null);
+  const [proofOpen, setProofOpen] = useState(false);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreviewUrl, setProofPreviewUrl] = useState<string | null>(null);
+  const [proofIntent, setProofIntent] = useState<OperatorProofIntent | null>(null);
+  const [proofError, setProofError] = useState<string | null>(null);
 
   useEffect(() => {
     setPendingComplete(null);
     setPayDialog(false);
     setIssueOpen(false);
     setIssueNote("");
+    setProofOpen(false);
+    setProofFile(null);
+    setProofIntent(null);
+    setProofError(null);
+    setProofPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return null;
+    });
   }, [bookingId]);
+
+  useEffect(() => {
+    return () => {
+      if (proofPreviewUrl) URL.revokeObjectURL(proofPreviewUrl);
+    };
+  }, [proofPreviewUrl]);
 
   const detail = useQuery({
     queryKey: ["operator", "booking-detail", bookingId],
@@ -79,6 +103,8 @@ function OperatorReservaDetailPage() {
         units: res.units,
         operation: res.operation,
         operationState: res.operationState,
+        completionProof: res.completionProof,
+        completionProofState: res.completionProofState,
       };
     },
   });
@@ -111,10 +137,53 @@ function OperatorReservaDetailPage() {
     },
   });
 
+  const runProofUpload = useMutation({
+    mutationFn: async (input: { file: File; intent: OperatorProofIntent }) => {
+      const check = validateClientProofFile(input.file);
+      if (!check.ok) {
+        const err = new Error(check.message) as Error & { status?: string };
+        err.status = check.code;
+        throw err;
+      }
+      const res = await uploadOperatorBookingProof({
+        bookingId: input.intent.bookingId,
+        clientUploadId: input.intent.clientUploadId,
+        file: input.file,
+      });
+      if (!res.ok) {
+        const err = new Error(res.message ?? "No pudimos cargar la foto.") as Error & { status?: string };
+        err.status = res.status;
+        throw err;
+      }
+      return res;
+    },
+    retry: false,
+    onSuccess: () => {
+      toast.success("Foto de finalización cargada.");
+      setProofOpen(false);
+      setProofError(null);
+      setProofFile(null);
+      setProofIntent(null);
+      setProofPreviewUrl((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return null;
+      });
+      invalidate();
+      detail.refetch();
+    },
+    onError: (e: Error & { status?: string }) => {
+      setProofError(e.message);
+    },
+  });
+
   const runCommand = useMutation({
     mutationFn: async (intent: OperatorCommandIntent) => {
       const res = await invokeOperatorCommand(intent);
-      if (!res.ok) throw new Error(res.message ?? "No se pudo actualizar.");
+      if (!res.ok) {
+        const err = new Error(res.message ?? "No se pudo actualizar.") as Error & { status?: string };
+        err.status = res.status;
+        throw err;
+      }
       return res;
     },
     retry: false,
@@ -129,8 +198,12 @@ function OperatorReservaDetailPage() {
       invalidate();
       detail.refetch();
     },
-    onError: (e: Error) => {
+    onError: (e: Error & { status?: string }) => {
       toast.error(e.message);
+      if (e.status === "proof_required") {
+        setPayDialog(false);
+        setProofOpen(true);
+      }
       detail.refetch();
     },
   });
@@ -163,6 +236,8 @@ function OperatorReservaDetailPage() {
   const b = detail.data.booking;
   const units = detail.data.units;
   const operation = detail.data.operation;
+  const completionProof = detail.data.completionProof;
+  const completionProofState = detail.data.completionProofState;
   const detailMode = resolveOperatorDetailMode({
     operation,
     operationState: detail.data.operationState,
@@ -174,7 +249,7 @@ function OperatorReservaDetailPage() {
   const canStart = canOperatorStartBooking(b);
   const canComplete = b.booking_status === "in_progress";
   const issueDialogTitle = getIssueActionLabel(b);
-  const isUpdating = runLegacy.isPending || runCommand.isPending;
+  const isUpdating = runLegacy.isPending || runCommand.isPending || runProofUpload.isPending;
   const allowMutations = detailMode === "lifecycle" || detailMode === "legacy";
 
   const completeWashLegacy = (markPaid: boolean) => {
@@ -189,16 +264,46 @@ function OperatorReservaDetailPage() {
 
   const completeWashCommand = (markPaid: boolean) => {
     if (isUpdating || !allowMutations) return;
-    if (!pendingComplete || pendingComplete.bookingId !== b.id) return;
-    runCommand.mutate(withCompleteWashPayment(pendingComplete, markPaid));
+    const intent = beginCompleteWashIntent({ bookingId: b.id, existing: pendingComplete });
+    setPendingComplete(intent);
+    runCommand.mutate(withCompleteWashPayment(intent, markPaid));
     setPayDialog(false);
-    setPendingComplete(null);
   };
 
   const handleLegacyComplete = () => {
     if (isUpdating || !allowMutations || !canComplete) return;
     if (collectOnComplete) setPayDialog(true);
     else completeWashLegacy(false);
+  };
+
+  const clearSelectedProof = () => {
+    setProofFile(null);
+    setProofError(null);
+    setProofPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return null;
+    });
+  };
+
+  const handleSelectProofFile = (file: File) => {
+    const check = validateClientProofFile(file);
+    if (!check.ok) {
+      setProofError(check.message);
+      return;
+    }
+    setProofError(null);
+    setProofIntent((existing) => beginProofUploadIntent({ bookingId: b.id, file, existing }));
+    setProofFile(file);
+    setProofPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return URL.createObjectURL(file);
+    });
+  };
+
+  const handleOpenProof = () => {
+    if (isUpdating || !allowMutations) return;
+    setProofError(null);
+    setProofOpen(true);
   };
 
   const handleLifecycleCommand = (
@@ -211,13 +316,9 @@ function OperatorReservaDetailPage() {
         setPayDialog(true);
         return;
       }
-      runCommand.mutate(
-        createOperatorCommandIntent({
-          bookingId: b.id,
-          command: "complete_wash",
-          markPaid: false,
-        }),
-      );
+      const intent = beginCompleteWashIntent({ bookingId: b.id, existing: pendingComplete });
+      setPendingComplete(intent);
+      runCommand.mutate(withCompleteWashPayment(intent, false));
       return;
     }
     runCommand.mutate(createOperatorCommandIntent({ bookingId: b.id, command }));
@@ -232,6 +333,8 @@ function OperatorReservaDetailPage() {
           operation={operation}
           paymentMethod={b.payment_method}
           paymentStatus={b.payment_status}
+          completionProofState={completionProofState}
+          completionProof={completionProof}
         />
       ) : detailMode === "row_missing" ? (
         <OperatorLifecycleRecovery onRefresh={() => detail.refetch()} />
@@ -263,10 +366,12 @@ function OperatorReservaDetailPage() {
           operation={operation}
           paymentMethod={b.payment_method}
           paymentStatus={b.payment_status}
+          completionProofState={completionProofState}
           isUpdating={isUpdating}
           pendingCommand={runCommand.isPending ? runCommand.variables?.command : null}
           pendingMarkPaid={runLegacy.isPending && runLegacy.variables?.action === "mark_paid"}
           onCommand={handleLifecycleCommand}
+          onOpenProof={handleOpenProof}
           onMarkPaid={() => {
             if (isUpdating || !allowMutations) return;
             runLegacy.mutate({ booking_id: b.id, action: "mark_paid" });
@@ -320,6 +425,33 @@ function OperatorReservaDetailPage() {
           </div>
         </div>
       )}
+
+      <OperatorCompletionProof
+        open={proofOpen}
+        bookingId={b.id}
+        existingProof={completionProof}
+        selectedFile={proofFile}
+        previewUrl={proofPreviewUrl}
+        error={proofError}
+        uploading={runProofUpload.isPending}
+        onOpenChange={(open) => {
+          if (runProofUpload.isPending && !open) return;
+          setProofOpen(open);
+          if (!open) clearSelectedProof();
+        }}
+        onSelectFile={handleSelectProofFile}
+        onClearFile={clearSelectedProof}
+        onUpload={() => {
+          if (!proofFile) return;
+          const intent = beginProofUploadIntent({
+            bookingId: b.id,
+            file: proofFile,
+            existing: proofIntent,
+          });
+          setProofIntent(intent);
+          runProofUpload.mutate({ file: proofFile, intent });
+        }}
+      />
 
       <AlertDialog
         open={payDialog}

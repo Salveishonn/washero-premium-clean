@@ -6,6 +6,7 @@ import { OPERATOR_LAYOUT } from "@/lib/operator";
 import {
   getLifecycleWorkflow,
   type BookingOperationSnapshot,
+  type CompletionProofState,
   type LifecycleActionKind,
   type OperatorLifecycleCommand,
 } from "@/lib/operator-lifecycle";
@@ -16,10 +17,12 @@ type Props = {
   operation: BookingOperationSnapshot;
   paymentMethod: string;
   paymentStatus: string;
+  completionProofState?: CompletionProofState | null;
   isUpdating?: boolean;
   pendingCommand?: OperatorLifecycleCommand | null;
   pendingMarkPaid?: boolean;
   onCommand?: (command: Extract<CommandAction, "start_travel" | "arrive" | "start_wash" | "complete_wash">) => void;
+  onOpenProof?: () => void;
   onMarkPaid?: () => void;
   onReportIssue?: () => void;
 };
@@ -33,6 +36,7 @@ function actionButton(
     pendingCommand?: OperatorLifecycleCommand | null;
     pendingMarkPaid?: boolean;
     onCommand?: Props["onCommand"];
+    onOpenProof?: () => void;
     onMarkPaid?: () => void;
   },
 ) {
@@ -40,8 +44,10 @@ function actionButton(
   const thisPending =
     action.kind === "command"
       ? opts.isUpdating && opts.pendingCommand === action.command
-      : opts.isUpdating && !!opts.pendingMarkPaid;
-  const label = thisPending ? action.pendingLabel : action.label;
+      : action.kind === "mark_paid"
+        ? opts.isUpdating && !!opts.pendingMarkPaid
+        : false;
+  const label = thisPending && "pendingLabel" in action ? action.pendingLabel : action.label;
   return (
     <Button
       type="button"
@@ -51,6 +57,7 @@ function actionButton(
       onClick={() => {
         if (opts.isUpdating) return;
         if (action.kind === "mark_paid") opts.onMarkPaid?.();
+        else if (action.kind === "open_proof") opts.onOpenProof?.();
         else {
           opts.onCommand?.(
             action.command as Extract<CommandAction, "start_travel" | "arrive" | "start_wash" | "complete_wash">,
@@ -68,10 +75,12 @@ export function OperatorLifecycleActions({
   operation,
   paymentMethod,
   paymentStatus,
+  completionProofState = null,
   isUpdating = false,
   pendingCommand,
   pendingMarkPaid = false,
   onCommand,
+  onOpenProof,
   onMarkPaid,
   onReportIssue,
 }: Props) {
@@ -80,6 +89,7 @@ export function OperatorLifecycleActions({
     paymentMethod,
     paymentStatus,
     operation,
+    completionProofState,
   });
 
   const showPrimary = workflow.primary.kind !== "none";
@@ -121,6 +131,7 @@ export function OperatorLifecycleActions({
           pendingCommand,
           pendingMarkPaid,
           onCommand,
+          onOpenProof,
           onMarkPaid,
         })}
 
@@ -131,6 +142,7 @@ export function OperatorLifecycleActions({
           pendingCommand,
           pendingMarkPaid,
           onCommand,
+          onOpenProof,
           onMarkPaid,
         })}
 

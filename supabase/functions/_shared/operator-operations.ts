@@ -218,6 +218,12 @@ export function rpcErrorToHttp(
         message: "La reserva no tiene estado operativo inicializado.",
         httpStatus: 500,
       };
+    case "proof_required":
+      return {
+        status: "proof_required",
+        message: "Necesitamos una foto del vehículo terminado antes de finalizar el servicio.",
+        httpStatus: 422,
+      };
     default:
       return { status: "server_error", message: "No pudimos actualizar la reserva.", httpStatus: 500 };
   }

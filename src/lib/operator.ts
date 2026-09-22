@@ -2,30 +2,46 @@ import { supabase } from "@/integrations/supabase/client";
 import { bookingStatusLabels, paymentStatusLabels } from "@/lib/booking-badges";
 import {
   buildOperatorCommandBody,
+  mapProofUploadError,
   normalizeBookingOperation,
+  normalizeCompletionProofState,
+  normalizeCompletionProofSummary,
   normalizeOperationState,
   operatorUpdateFromInvokeResult,
   type BookingOperationSnapshot,
   type BookingOperationState,
+  type CompletionProofState,
   type OperatorCommandIntent,
+  type OperatorCompletionProofSummary,
 } from "@/lib/operator-lifecycle";
 
 export type {
   BookingOperationPhase,
   BookingOperationSnapshot,
   BookingOperationState,
+  CompletionProofState,
   OperatorCommandIntent,
+  OperatorCompletionProofSummary,
   OperatorDetailUiMode,
   OperatorLifecycleCommand,
+  OperatorProofIntent,
 } from "@/lib/operator-lifecycle";
 export {
+  OPERATOR_PROOF_ACCEPT,
+  OPERATOR_PROOF_MAX_BYTES,
   beginCompleteWashIntent,
+  beginProofUploadIntent,
   buildOperatorCommandBody,
   canOperatorCollectCash,
   createOperatorCommandIntent,
+  formatProofBytes,
   hasBookingOperation,
+  isHeicLikeProof,
   mapOperatorCommandError,
+  mapProofUploadError,
+  proofFileIdentity,
   resolveOperatorDetailMode,
+  validateClientProofFile,
   withCompleteWashPayment,
 } from "@/lib/operator-lifecycle";
 
@@ -742,6 +758,8 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
   units: OperatorBookingUnit[];
   operation: BookingOperationSnapshot | null;
   operationState: BookingOperationState | null;
+  completionProof: OperatorCompletionProofSummary | null;
+  completionProofState: CompletionProofState | null;
   error: string | null;
   status?: string;
 }> {
@@ -752,6 +770,8 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
       units: [],
       operation: null,
       operationState: null,
+      completionProof: null,
+      completionProofState: null,
       error: OPERATOR_DETAIL_ERROR_MESSAGES.missing_booking_id,
       status: "missing_booking_id",
     };
@@ -771,6 +791,8 @@ export async function fetchOperatorBookingDetail(bookingId: string): Promise<{
       units: [],
       operation: null,
       operationState: null,
+      completionProof: null,
+      completionProofState: null,
       error: mapOperatorDetailError(undefined, undefined, error.message),
       status: "server_error",
     };
@@ -784,6 +806,8 @@ function normalizeOperatorDetailSuccess(data: unknown): {
   units: OperatorBookingUnit[];
   operation: BookingOperationSnapshot | null;
   operationState: BookingOperationState | null;
+  completionProof: OperatorCompletionProofSummary | null;
+  completionProofState: CompletionProofState | null;
   error: string | null;
   status?: string;
 } {
@@ -795,6 +819,8 @@ function normalizeOperatorDetailSuccess(data: unknown): {
     units?: unknown;
     operation?: unknown;
     operation_state?: unknown;
+    completion_proof?: unknown;
+    completion_proof_state?: unknown;
   };
 
   if (!body.ok) {
@@ -803,6 +829,8 @@ function normalizeOperatorDetailSuccess(data: unknown): {
       units: [],
       operation: null,
       operationState: null,
+      completionProof: null,
+      completionProofState: null,
       error: mapOperatorDetailError(body.status, body.message),
       status: body.status ?? "server_error",
     };
@@ -815,6 +843,8 @@ function normalizeOperatorDetailSuccess(data: unknown): {
       units: [],
       operation: null,
       operationState: null,
+      completionProof: null,
+      completionProofState: null,
       error: OPERATOR_DETAIL_ERROR_MESSAGES.server_error,
       status: "server_error",
     };
@@ -827,6 +857,68 @@ function normalizeOperatorDetailSuccess(data: unknown): {
     operationState: Object.prototype.hasOwnProperty.call(body, "operation_state")
       ? normalizeOperationState(body.operation_state)
       : null,
+    completionProof: Object.prototype.hasOwnProperty.call(body, "completion_proof")
+      ? normalizeCompletionProofSummary(body.completion_proof)
+      : null,
+    completionProofState: Object.prototype.hasOwnProperty.call(body, "completion_proof_state")
+      ? normalizeCompletionProofState(body.completion_proof_state)
+      : null,
     error: null,
+  };
+}
+
+export type OperatorProofUploadResponse = {
+  ok: boolean;
+  replayed?: boolean;
+  status?: string;
+  message?: string;
+  proof?: OperatorCompletionProofSummary | null;
+};
+
+export async function uploadOperatorBookingProof(input: {
+  bookingId: string;
+  clientUploadId: string;
+  file: File;
+}): Promise<OperatorProofUploadResponse> {
+  const form = new FormData();
+  form.append("booking_id", input.bookingId);
+  form.append("proof_kind", "completion");
+  form.append("client_upload_id", input.clientUploadId);
+  form.append("file", input.file);
+
+  const { data, error } = await supabase.functions.invoke("operator-upload-booking-proof", {
+    body: form,
+  });
+  const payload = await readFunctionsInvokePayload(data, error);
+  if (payload && typeof payload === "object") {
+    const row = payload as Record<string, unknown>;
+    if (row.ok === true) {
+      const nested = row.proof && typeof row.proof === "object" ? (row.proof as Record<string, unknown>) : row;
+      return {
+        ok: true,
+        replayed: row.replayed === true,
+        proof: normalizeCompletionProofSummary({
+          id: nested.id,
+          proof_kind: nested.proof_kind ?? "completion",
+          mime_type: nested.mime_type,
+          size_bytes: nested.size_bytes,
+          created_at: nested.created_at,
+        }),
+      };
+    }
+    const status = typeof row.status === "string" ? row.status : "server_error";
+    const message = typeof row.message === "string" ? row.message : null;
+    return {
+      ok: false,
+      status,
+      message: mapProofUploadError(status, message),
+    };
+  }
+  return {
+    ok: false,
+    status: "server_error",
+    message: mapProofUploadError("server_error", error && typeof error === "object" && "message" in error
+      ? String((error as { message?: string }).message ?? "")
+      : null),
   };
 }

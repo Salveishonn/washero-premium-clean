@@ -162,6 +162,7 @@ Deno.serve(async (req) => {
   let invoice_id: string | null = null;
   let invoice_created = false;
   let replayed = false;
+  let completionProofId: string | null = null;
 
   if (parsed.kind === "legacy" && parsed.action === "mark_paid") {
     if (booking.payment_status === "paid") {
@@ -193,6 +194,7 @@ Deno.serve(async (req) => {
           ok: true;
           replayed?: boolean;
           booking_status?: string;
+          completion_proof_id?: string | null;
         }
       | { ok: false; code?: string };
 
@@ -206,6 +208,10 @@ Deno.serve(async (req) => {
 
     booking_status = result.booking_status ?? booking_status;
     replayed = result.replayed === true;
+    completionProofId =
+      typeof result.completion_proof_id === "string" && result.completion_proof_id
+        ? result.completion_proof_id
+        : null;
   }
 
   // Replay must still reach payment collection. Do not return early on replayed.
@@ -252,5 +258,6 @@ Deno.serve(async (req) => {
     invoice_id,
     invoice_created,
     replayed,
+    completion_proof_id: completionProofId,
   });
 });

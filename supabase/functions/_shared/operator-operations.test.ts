@@ -3,6 +3,7 @@ import {
   adminOverrideFromAuthRole,
   formatOperatorIssueNote,
   parseOperatorUpdateRequest,
+  rpcErrorToHttp,
   validateClientEventId,
 } from "./operator-operations.ts";
 
@@ -105,4 +106,28 @@ Deno.test("issue note prefix matches legacy operator_notes formatting", () => {
   const formatted = formatOperatorIssueNote("cliente ausente", at);
   assertEquals(formatted.startsWith("[Operador "), true);
   assertEquals(formatted.endsWith("] cliente ausente"), true);
+});
+
+Deno.test("proof_required is a dedicated complete_wash error", () => {
+  const mapped = rpcErrorToHttp("proof_required", "complete_wash");
+  assertEquals(mapped.status, "proof_required");
+  assertEquals(mapped.httpStatus, 422);
+});
+
+Deno.test("client cannot supply completion_proof_id for complete_wash", () => {
+  const parsed = parseOperatorUpdateRequest({
+    booking_id: "b1",
+    command: "complete_wash",
+    client_event_id: "c1",
+    completion_proof_id: "forged",
+    actor_id: "forged",
+    admin_override: true,
+  });
+  assertEquals(parsed.ok, true);
+  if (parsed.ok) {
+    assertEquals("completion_proof_id" in parsed, false);
+    assertEquals("actor_id" in parsed, false);
+    assertEquals("adminOverride" in parsed, false);
+    assertEquals("admin_override" in parsed, false);
+  }
 });
