@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
+import { deleteBooking } from "@/lib/admin-delete";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -1473,7 +1474,7 @@ function HealthTab() {
         payment_method: "Pagar después",
         notes: tag,
       };
-      const ok = await supabase.from("bookings").insert(base);
+      const ok = await supabase.from("bookings").insert(base).select("id").maybeSingle();
       setInsertResult(ok.error ? `FAIL: ${ok.error.message}` : "OK");
 
       const bad = await supabase.from("bookings").insert({ ...base, booking_source: "admin" });
@@ -1481,8 +1482,10 @@ function HealthTab() {
         bad.error ? `OK (bloqueado: ${bad.error.code})` : "FAIL (insert permitido!)",
       );
 
-      // Cleanup as admin
-      await supabase.from("bookings").delete().eq("notes", tag);
+      const { data: leftover } = await supabase.from("bookings").select("id").eq("notes", tag);
+      for (const row of leftover ?? []) {
+        await deleteBooking(row.id);
+      }
     } finally {
       setRunning(false);
     }

@@ -92,3 +92,6 @@ verify_jwt = false
 
 [functions.operator-upload-booking-proof]
 verify_jwt = true
+
+[functions.admin-delete-booking]
+verify_jwt = true

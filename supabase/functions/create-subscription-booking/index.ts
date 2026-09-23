@@ -241,6 +241,8 @@ Deno.serve(async (req) => {
 
   if (usageErr || !usage) {
     console.error("[create-subscription-booking] usage insert", usageErr);
+    // Immediate create-rollback only: this booking cannot have proof media yet
+    // (uploads require wash_in_progress/proof_required). Not a production hard-delete path.
     await admin.from("bookings").delete().eq("id", bookingId);
     return json({
       ok: false,
@@ -265,6 +267,7 @@ Deno.serve(async (req) => {
   if (updErr) {
     console.error("[create-subscription-booking] booking update", updErr);
     await admin.from("subscription_usages").delete().eq("id", usage.id);
+    // Immediate create-rollback only: this booking cannot have proof media yet.
     await admin.from("bookings").delete().eq("id", bookingId);
     return json({
       ok: false,
