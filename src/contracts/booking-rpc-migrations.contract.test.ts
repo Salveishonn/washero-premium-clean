@@ -20,6 +20,14 @@ function functionSignature(sql: string, name: string): string {
   return match![1].replace(/\s+/g, " ").trim();
 }
 
+function generatedRpcArgNames(types: string, name: string): string[] {
+  const match = types.match(
+    new RegExp(`${name}:\\s*\\{[\\s\\S]*?Args:\\s*\\{([\\s\\S]*?)\\}\\s*;\\s*Returns:`),
+  );
+  expect(match, `missing generated Args for ${name}`).not.toBeNull();
+  return [...match![1].matchAll(/\b(p_[A-Za-z0-9_]+)\s*\??:/g)].map((m) => m[1]);
+}
+
 describe("restored booking RPC presence", () => {
   const createSql = readRepoFile(CREATE_MIGRATION);
   const cancelSql = readRepoFile(CANCEL_RESCHEDULE_MIGRATION);
@@ -87,7 +95,11 @@ describe("restored booking RPC presence", () => {
 
     const types = readRepoFile("src/integrations/supabase/types.ts");
     expect(types).toContain("create_booking_atomic:");
-    expect(types).toContain("p_booking: Json; p_idempotency_key?: string; p_units: Json");
+    const createArgs = generatedRpcArgNames(types, "create_booking_atomic");
+    expect(createArgs).toEqual(
+      expect.arrayContaining(["p_booking", "p_idempotency_key", "p_units"]),
+    );
+    expect(createArgs).toContain("p_skip_slot_checks");
     expect(types).toContain("p_booking_id: string; p_customer_phone: string");
     expect(types).toContain("p_new_date: string");
     expect(types).toContain("p_new_time: string");
