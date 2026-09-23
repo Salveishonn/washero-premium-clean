@@ -28,7 +28,6 @@ const OPERATIONAL_STATES_NOT_ON_BOOKING_STATUS = [
 ] as const;
 
 const BOOKING_STATUS_CHECK_SOURCES = [
-  "supabase/migrations/20260514215526_41093845-b0c5-4d8b-99f2-c0a867478172.sql",
   "supabase/migrations/20260514215524_.sql",
   "db/migrations/0001_init_washero.sql",
 ] as const;

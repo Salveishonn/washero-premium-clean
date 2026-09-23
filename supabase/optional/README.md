@@ -18,3 +18,6 @@ Schedules pg_cron job `send-operator-reminder-push`.
 Other files here (`finance_expenses_sync_schedule.sql`,
 `whatsapp_agent_worker_schedule.sql`) follow the same rule: environment
 provisioning, not the default migration chain.
+
+Unshipped in-house WhatsApp-agent table SQL lives in
+`whatsapp-agent-canary/` and must not be replayed by `db reset` / `db push`.
