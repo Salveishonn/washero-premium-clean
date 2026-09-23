@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractQuotedCheckValues, readRepoFile } from "./read-repo-file";
 
-const MIGRATION = "supabase/migrations/20260922160000_booking_proof_media.sql";
+const MIGRATION = "supabase/migrations/20260922153209_booking_proof_media.sql";
 const EDGE = "supabase/functions/operator-upload-booking-proof/index.ts";
 const HELPER = "supabase/functions/_shared/booking-proof.ts";
 const CONFIG = "supabase/config.toml";

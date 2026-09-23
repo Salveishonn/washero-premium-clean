@@ -7,7 +7,7 @@ import { extractQuotedCheckValues, readRepoFile } from "./read-repo-file";
  * Protects the additive operations domain. These are not runtime DB tests.
  * They freeze the migration contract before a command API is added.
  */
-const MIGRATION = "supabase/migrations/20260922120000_operations_domain_foundation.sql";
+const MIGRATION = "supabase/migrations/20260922152850_operations_domain_foundation.sql";
 
 const OPERATIONAL_PHASES = [
   "unassigned",
