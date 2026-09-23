@@ -13,7 +13,7 @@ import { readRepoFile } from "./read-repo-file";
  */
 const OPERATOR_UPDATE_SOURCE = "supabase/functions/operator-update-booking/index.ts";
 const HELPER = "supabase/functions/_shared/operator-operations.ts";
-const TRANSITION_SQL = "supabase/migrations/20260922140000_operations_transition_api.sql";
+const TRANSITION_SQL = "supabase/migrations/20260922153059_operations_transition_api.sql";
 
 describe("operator transition contract", () => {
   const source = readRepoFile(OPERATOR_UPDATE_SOURCE);

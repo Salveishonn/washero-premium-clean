@@ -5,7 +5,7 @@ import { readRepoFile } from "./read-repo-file";
  * CONTRACT / SOURCE TEST (Phase 2)
  * Internal transition RPC + Edge Function dual API. Not a live DB integration test.
  */
-const MIGRATION = "supabase/migrations/20260922140000_operations_transition_api.sql";
+const MIGRATION = "supabase/migrations/20260922153059_operations_transition_api.sql";
 const EDGE = "supabase/functions/operator-update-booking/index.ts";
 const HELPER = "supabase/functions/_shared/operator-operations.ts";
 

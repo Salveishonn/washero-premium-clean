@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readRepoFile } from "./read-repo-file";
 
-const MIGRATION = "supabase/migrations/20260922180000_proof_gated_completion.sql";
-const PHASE2 = "supabase/migrations/20260922140000_operations_transition_api.sql";
-const PHASE4A = "supabase/migrations/20260922160000_booking_proof_media.sql";
+const MIGRATION = "supabase/migrations/20260923055416_proof_gated_completion.sql";
+const PHASE2 = "supabase/migrations/20260922153059_operations_transition_api.sql";
+const PHASE4A = "supabase/migrations/20260922153209_booking_proof_media.sql";
 const EDGE_UPDATE = "supabase/functions/operator-update-booking/index.ts";
 const EDGE_DETAIL = "supabase/functions/operator-booking-detail/index.ts";
 const EDGE_UPLOAD = "supabase/functions/operator-upload-booking-proof/index.ts";
