@@ -1,0 +1,14 @@
+-- WASHERO migration-history shim.
+--
+-- Production migration 20260823082826 scheduled the
+-- send-operator-reminder-push pg_cron job.
+--
+-- That operation is intentionally environment-specific and must not be
+-- replayed automatically in local/fresh environments because it targets
+-- production infrastructure.
+--
+-- Canonical environment provisioning SQL:
+--   supabase/optional/operator_push_reminders_schedule.sql
+--
+-- This migration intentionally performs no schema/data/cron changes.
+select 1;
