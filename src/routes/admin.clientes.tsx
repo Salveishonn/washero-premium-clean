@@ -957,7 +957,8 @@ function DeleteCustomerDialog({
               )}
               {deleteBookingsToo && (
                 <p className="text-destructive">
-                  Las reservas se eliminan de forma permanente, incluidas facturas asociadas.
+                  Las reservas se eliminan de forma permanente. Si alguna tiene comprobante
+                  aprobado, pago o factura, no se borra el cliente ni esas reservas.
                 </p>
               )}
             </div>

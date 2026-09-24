@@ -42,7 +42,29 @@ describe("admin-delete client wrapper", () => {
       error: null,
     });
     const result = await deleteBooking(BOOKING_ID);
-    expect(result).toEqual({ ok: false, error: "No tenés permiso para eliminar reservas." });
+    expect(result).toEqual({ ok: false, error: "No tenés permiso para eliminar reservas.", error_code: "forbidden" });
+  });
+
+  it("surfaces a financial-evidence block without suggesting receipt deletion", async () => {
+    invoke.mockResolvedValue({
+      data: {
+        ok: false,
+        error: "financial_evidence_exists",
+        message:
+          "Esta reserva tiene información financiera asociada (comprobante aprobado, pago o factura) y no puede eliminarse definitivamente.",
+        evidence: { paid: true, payments: 1, invoices: 1, approved_receipts: 1 },
+      },
+      error: null,
+    });
+    const result = await deleteBooking(BOOKING_ID);
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Esta reserva tiene información financiera asociada (comprobante aprobado, pago o factura) y no puede eliminarse definitivamente.",
+      error_code: "financial_evidence_exists",
+    });
+    expect(result.ok === false && result.error.includes("comprobante aprobado")).toBe(true);
+    expect(result.ok === false && /borr(á|a) el comprobante|eliminá el comprobante/i.test(result.error)).toBe(false);
   });
 
   it("stops customer deletion when a booking hard-delete fails", async () => {
@@ -80,5 +102,29 @@ describe("admin-delete client wrapper", () => {
     const result = await deleteBookings([BOOKING_ID, "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee"]);
     expect(result.ok).toBe(false);
     expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed on customer delete when a booking has financial evidence", async () => {
+    invoke.mockResolvedValue({
+      data: {
+        ok: false,
+        error: "financial_evidence_exists",
+        message:
+          "Esta reserva tiene información financiera asociada (comprobante aprobado, pago o factura) y no puede eliminarse definitivamente.",
+      },
+      error: null,
+    });
+    const result = await deleteCustomer({
+      customerId: "cust-1",
+      deleteBookingsToo: true,
+      bookingIds: [BOOKING_ID],
+    });
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "No se puede eliminar el cliente junto con todas sus reservas porque al menos una tiene información financiera que debe conservarse.",
+      error_code: "financial_evidence_exists",
+    });
+    expect(from).not.toHaveBeenCalled();
   });
 });

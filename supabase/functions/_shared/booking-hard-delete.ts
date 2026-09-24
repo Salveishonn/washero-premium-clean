@@ -1,12 +1,30 @@
 import { BOOKING_PROOFS_BUCKET, isUuid } from "./booking-proof.ts";
+import {
+  runPaymentReceiptCleanup,
+  type PaymentReceiptCleanupPorts,
+  type PaymentReceiptHardDeleteErrorCode,
+  type ReceiptCleanupRow,
+} from "./payment-receipt-hard-delete.ts";
 
 export { BOOKING_PROOFS_BUCKET };
+export {
+  PAYMENT_RECEIPTS_BUCKET,
+  classifyPrefixReceiptOwnership,
+  isDeletableReceiptPathForBooking,
+  isValidPaymentReceiptStoragePath,
+  joinListedReceiptObjectPath,
+} from "./payment-receipt-hard-delete.ts";
 
 export const PROOF_LIST_PAGE_SIZE = 100;
 export const PROOF_LIST_MAX_OBJECTS = 500;
 export const PROOF_REMOVE_CHUNK = 100;
 export const PROOF_LIST_MAX_PAGES = 50;
 export const PROOF_MAX_PATH_SEGMENTS = 8;
+
+const INTERNAL_TEST_NOTE_PREFIXES = [
+  "HEALTHCHECK_DELETE_ME_WASHERO_INTERNAL_TEST:",
+  "HEALTHCHECK_DELETE_ME_",
+] as const;
 
 export type HardDeleteErrorCode =
   | "invalid_request"
@@ -19,15 +37,42 @@ export type HardDeleteErrorCode =
   | "too_many_objects"
   | "invoice_delete_failed"
   | "booking_delete_failed"
-  | "verification_failed";
+  | "verification_failed"
+  | "financial_evidence_exists"
+  | "financial_lookup_failed"
+  | PaymentReceiptHardDeleteErrorCode;
+
+export type FinancialEvidence = {
+  paid: boolean;
+  payments: number;
+  invoices: number;
+  approved_receipts: number;
+};
+
+export type FinancialGuard = "allow" | "bypass_test" | "already_deleted" | "block";
 
 export type ListedStorageItem = {
   name: string;
   id: string | null;
 };
 
-export type HardDeletePorts = {
-  getBooking: (bookingId: string) => Promise<{ exists: boolean } | { error: string }>;
+export type HardDeletePorts = PaymentReceiptCleanupPorts & {
+  getBooking: (
+    bookingId: string,
+  ) => Promise<
+    | { exists: false }
+    | { exists: true; payment_status: string | null; notes: string | null }
+    | { error: string }
+  >;
+  countPayments: (
+    bookingId: string,
+  ) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+  countInvoices: (
+    bookingId: string,
+  ) => Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+  listLinkedReceipts: (
+    bookingId: string,
+  ) => Promise<{ ok: true; rows: ReceiptCleanupRow[] } | { ok: false; error: string }>;
   listProofPage: (
     folder: string,
     offset: number,
@@ -45,6 +90,13 @@ export type HardDeleteSuccess = {
   ok: true;
   booking_id: string;
   proof_objects_deleted: number;
+  receipt_objects_deleted: number;
+  receipt_rows_deleted: number;
+  internal_test: boolean;
+  financial_guard: Exclude<FinancialGuard, "block">;
+  payment_count: number;
+  invoice_count: number;
+  approved_receipt_count: number;
   already_deleted?: true;
 };
 
@@ -54,6 +106,9 @@ export type HardDeleteFailure = {
   retryable: boolean;
   message: string;
   proof_count_found?: number;
+  evidence?: FinancialEvidence;
+  internal_test?: boolean;
+  financial_guard?: FinancialGuard;
 };
 
 export type HardDeleteResult = HardDeleteSuccess | HardDeleteFailure;
@@ -77,6 +132,22 @@ export function parseDeleteBookingRequest(
   const bookingId = raw.trim();
   if (!isUuid(bookingId)) return { ok: false, error: "invalid_request" };
   return { ok: true, booking_id: bookingId };
+}
+
+/** Trusted notes only. Client flags such as is_test / force are ignored. */
+export function isInternalTestBooking(notes: string | null | undefined): boolean {
+  const lines = String(notes ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.some((line) =>
+    INTERNAL_TEST_NOTE_PREFIXES.some((prefix) => line.startsWith(prefix))
+  );
+}
+
+export function hasFinancialEvidence(evidence: FinancialEvidence): boolean {
+  return evidence.paid || evidence.payments > 0 || evidence.invoices > 0 ||
+    evidence.approved_receipts > 0;
 }
 
 function hasEncodedTraversal(path: string): boolean {
@@ -157,11 +228,15 @@ export function hardDeleteHttpStatus(code: HardDeleteErrorCode): number {
   switch (code) {
     case "invalid_request":
     case "proof_path_invalid":
+    case "payment_receipt_path_invalid":
       return 400;
     case "unauthorized":
       return 401;
     case "forbidden":
       return 403;
+    case "financial_evidence_exists":
+    case "payment_receipt_storage_conflict":
+      return 409;
     default:
       return 500;
   }
@@ -182,6 +257,21 @@ export function hardDeletePublicMessage(code: HardDeleteErrorCode): string {
     case "storage_cleanup_incomplete":
     case "too_many_objects":
       return "No pudimos limpiar las fotos de prueba. Reintentá.";
+    case "financial_evidence_exists":
+      return "Esta reserva tiene información financiera asociada (comprobante aprobado, pago o factura) y no puede eliminarse definitivamente.";
+    case "financial_lookup_failed":
+      return "No pudimos verificar la información financiera de la reserva. Reintentá.";
+    case "payment_receipt_path_invalid":
+      return "Hay un comprobante de pago con una ruta inválida. No eliminamos la reserva.";
+    case "payment_receipt_storage_conflict":
+      return "Hay un comprobante de pago que no podemos limpiar de forma segura. No eliminamos la reserva.";
+    case "payment_receipt_storage_list_failed":
+    case "payment_receipt_storage_delete_failed":
+    case "payment_receipt_storage_cleanup_incomplete":
+    case "payment_receipt_too_many_objects":
+      return "No pudimos limpiar los comprobantes de pago. Reintentá.";
+    case "payment_receipt_delete_failed":
+      return "Los archivos de comprobante se limpiaron, pero no pudimos eliminar los registros. Reintentá.";
     case "invoice_delete_failed":
       return "No pudimos eliminar la factura asociada.";
     case "booking_delete_failed":
@@ -193,16 +283,29 @@ export function hardDeletePublicMessage(code: HardDeleteErrorCode): string {
   }
 }
 
+const NON_RETRYABLE_ERRORS = new Set<HardDeleteErrorCode>([
+  "invalid_request",
+  "unauthorized",
+  "forbidden",
+  "proof_path_invalid",
+  "financial_evidence_exists",
+  "payment_receipt_path_invalid",
+  "payment_receipt_storage_conflict",
+]);
+
 function fail(
   error: HardDeleteErrorCode,
-  extra?: { proof_count_found?: number },
+  extra?: {
+    proof_count_found?: number;
+    evidence?: FinancialEvidence;
+    internal_test?: boolean;
+    financial_guard?: FinancialGuard;
+  },
 ): HardDeleteFailure {
-  const retryable = error !== "invalid_request" && error !== "unauthorized" &&
-    error !== "forbidden" && error !== "proof_path_invalid";
   return {
     ok: false,
     error,
-    retryable,
+    retryable: !NON_RETRYABLE_ERRORS.has(error),
     message: hardDeletePublicMessage(error),
     ...extra,
   };
@@ -260,6 +363,33 @@ export async function deleteProofPaths(
   return { ok: true };
 }
 
+function successPayload(input: {
+  bookingId: string;
+  proofObjectsDeleted: number;
+  receiptObjectsDeleted: number;
+  receiptRowsDeleted: number;
+  internalTest: boolean;
+  financialGuard: Exclude<FinancialGuard, "block">;
+  paymentCount: number;
+  invoiceCount: number;
+  approvedReceiptCount: number;
+  alreadyDeleted?: true;
+}): HardDeleteSuccess {
+  return {
+    ok: true,
+    booking_id: input.bookingId,
+    proof_objects_deleted: input.proofObjectsDeleted,
+    receipt_objects_deleted: input.receiptObjectsDeleted,
+    receipt_rows_deleted: input.receiptRowsDeleted,
+    internal_test: input.internalTest,
+    financial_guard: input.financialGuard,
+    payment_count: input.paymentCount,
+    invoice_count: input.invoiceCount,
+    approved_receipt_count: input.approvedReceiptCount,
+    ...(input.alreadyDeleted ? { already_deleted: true as const } : {}),
+  };
+}
+
 export async function runCanonicalBookingHardDelete(
   bookingId: string,
   ports: HardDeletePorts,
@@ -268,6 +398,57 @@ export async function runCanonicalBookingHardDelete(
 
   const booking = await ports.getBooking(bookingId);
   if ("error" in booking) return fail("verification_failed");
+
+  let receiptObjectsDeleted = 0;
+  let receiptRowsDeleted = 0;
+  let internalTest = false;
+  let financialGuard: Exclude<FinancialGuard, "block"> = "allow";
+  let paymentCount = 0;
+  let invoiceCount = 0;
+  let approvedReceiptCount = 0;
+
+  if (booking.exists) {
+    internalTest = isInternalTestBooking(booking.notes);
+
+    const payments = await ports.countPayments(bookingId);
+    if (!payments.ok) return fail("financial_lookup_failed");
+    const invoices = await ports.countInvoices(bookingId);
+    if (!invoices.ok) return fail("financial_lookup_failed");
+    const linked = await ports.listLinkedReceipts(bookingId);
+    if (!linked.ok) return fail("financial_lookup_failed");
+
+    paymentCount = payments.count;
+    invoiceCount = invoices.count;
+    approvedReceiptCount = linked.rows.filter((row) => row.status === "approved").length;
+    const evidence: FinancialEvidence = {
+      paid: booking.payment_status === "paid",
+      payments: paymentCount,
+      invoices: invoiceCount,
+      approved_receipts: approvedReceiptCount,
+    };
+
+    if (!internalTest && hasFinancialEvidence(evidence)) {
+      return fail("financial_evidence_exists", {
+        evidence,
+        internal_test: false,
+        financial_guard: "block",
+      });
+    }
+
+    financialGuard = internalTest ? "bypass_test" : "allow";
+
+    const receiptCleanup = await runPaymentReceiptCleanup(bookingId, linked.rows, ports);
+    if (!receiptCleanup.ok) {
+      return fail(receiptCleanup.error, {
+        internal_test: internalTest,
+        financial_guard: financialGuard,
+      });
+    }
+    receiptObjectsDeleted = receiptCleanup.objects_deleted;
+    receiptRowsDeleted = receiptCleanup.rows_deleted;
+  } else {
+    financialGuard = "already_deleted";
+  }
 
   const listed = await enumerateBookingProofPaths(bookingId, ports.listProofPage);
   if (!listed.ok) {
@@ -292,16 +473,24 @@ export async function runCanonicalBookingHardDelete(
   }
 
   if (!booking.exists) {
-    return {
-      ok: true,
-      booking_id: bookingId,
-      already_deleted: true,
-      proof_objects_deleted: proofCountFound,
-    };
+    return successPayload({
+      bookingId,
+      proofObjectsDeleted: proofCountFound,
+      receiptObjectsDeleted: 0,
+      receiptRowsDeleted: 0,
+      internalTest: false,
+      financialGuard: "already_deleted",
+      paymentCount: 0,
+      invoiceCount: 0,
+      approvedReceiptCount: 0,
+      alreadyDeleted: true,
+    });
   }
 
-  const invoices = await ports.deleteInvoices(bookingId);
-  if (!invoices.ok) return fail("invoice_delete_failed", { proof_count_found: proofCountFound });
+  const invoicesDeleted = await ports.deleteInvoices(bookingId);
+  if (!invoicesDeleted.ok) {
+    return fail("invoice_delete_failed", { proof_count_found: proofCountFound });
+  }
 
   const deleted = await ports.deleteBooking(bookingId);
   if (!deleted.ok) return fail("booking_delete_failed", { proof_count_found: proofCountFound });
@@ -321,9 +510,15 @@ export async function runCanonicalBookingHardDelete(
     return fail("verification_failed", { proof_count_found: proofCountFound });
   }
 
-  return {
-    ok: true,
-    booking_id: bookingId,
-    proof_objects_deleted: proofCountFound,
-  };
+  return successPayload({
+    bookingId,
+    proofObjectsDeleted: proofCountFound,
+    receiptObjectsDeleted,
+    receiptRowsDeleted,
+    internalTest,
+    financialGuard,
+    paymentCount,
+    invoiceCount,
+    approvedReceiptCount,
+  });
 }
