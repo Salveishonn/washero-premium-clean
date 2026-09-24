@@ -672,6 +672,44 @@ export type OperatorWhatsappResponse = {
   log_id?: string | null;
 };
 
+export async function messageFromFunctionsError(
+  error: { message?: string; context?: Response },
+): Promise<string | null> {
+  try {
+    const ctx = error.context;
+    if (ctx && typeof ctx.json === "function") {
+      const body = (await ctx.clone().json()) as {
+        message?: string;
+        status?: string;
+        error?: string;
+      };
+      if (body?.message?.trim()) return body.message.trim();
+      if (typeof body?.error === "string" && body.error.trim()) return body.error.trim();
+    }
+  } catch {
+    // ignore parse failures
+  }
+  return null;
+}
+
+export function operatorWhatsappErrorMessage(input: {
+  status?: string;
+  message?: string;
+  invokeError?: string;
+}): string {
+  if (input.status === "booking_forbidden") return "No podés enviar mensajes para esta reserva.";
+  if (input.status === "template_not_configured") {
+    return input.message ?? "Plantilla de WhatsApp no configurada.";
+  }
+  if (input.message?.trim() && !/non-2xx status code/i.test(input.message)) {
+    return input.message.trim();
+  }
+  if (input.invokeError && /non-2xx status code/i.test(input.invokeError)) {
+    return "No pudimos enviar el WhatsApp. Revisá notificaciones/admin.";
+  }
+  return input.invokeError?.trim() || input.message?.trim() || "No pudimos enviar el WhatsApp. Revisá notificaciones/admin.";
+}
+
 export async function invokeOperatorUpdateBooking(payload: {
   booking_id: string;
   action: OperatorUpdateAction;
@@ -721,8 +759,22 @@ export async function invokeOperatorSendWhatsapp(payload: {
   const { data, error } = await supabase.functions.invoke("operator-send-whatsapp-message", {
     body: payload,
   });
-  if (error) return { ok: false, status: "server_error", message: error.message };
-  return (data ?? { ok: false, status: "server_error" }) as OperatorWhatsappResponse;
+  const body = (data ?? null) as OperatorWhatsappResponse | null;
+  if (body && typeof body === "object" && typeof body.ok === "boolean") {
+    return body;
+  }
+  if (error) {
+    const fromBody = await messageFromFunctionsError(error);
+    return {
+      ok: false,
+      status: "server_error",
+      message: operatorWhatsappErrorMessage({
+        message: fromBody ?? undefined,
+        invokeError: error.message,
+      }),
+    };
+  }
+  return { ok: false, status: "server_error", message: "No pudimos enviar el WhatsApp." };
 }
 
 export function statusLabel(status: string) {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, MessageSquare, Phone, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -203,7 +203,7 @@ function MensajesPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <MessageSquare className="h-6 w-6" /> Inbox Botmaker
+            <MessageSquare className="h-6 w-6" /> Inbox WhatsApp
           </h1>
           <p className="text-sm text-muted-foreground">
             Conversaciones, solicitudes de reserva y casos que requieren atención humana.
@@ -225,9 +225,6 @@ function MensajesPage() {
           </div>
           <Button size="sm" variant="ghost" className="h-8" onClick={() => setFilter("invalid_token")}>
             Ver eventos
-          </Button>
-          <Button asChild size="sm" variant="outline" className="h-8">
-            <Link to="/admin/botmaker">Configuración Botmaker</Link>
           </Button>
         </div>
       )}

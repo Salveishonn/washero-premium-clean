@@ -38,3 +38,16 @@ export async function isValidWorkerSecret(
   if (!providedSecret) return false;
   return await timingSafeEqual(providedSecret, configuredSecret);
 }
+
+/** Accept any of several configured secrets (n8n inbound vs existing Botmaker). */
+export async function isValidAnyWorkerSecret(
+  providedSecret: string | null,
+  configuredSecrets: readonly string[],
+): Promise<boolean> {
+  const secrets = configuredSecrets.map((s) => s.trim()).filter(Boolean);
+  if (!providedSecret || secrets.length === 0) return false;
+  const matches = await Promise.all(
+    secrets.map((secret) => isValidWorkerSecret(providedSecret, secret)),
+  );
+  return matches.some(Boolean);
+}

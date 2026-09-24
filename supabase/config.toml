@@ -18,22 +18,10 @@ verify_jwt = false
 [functions.mp-diagnostics]
 verify_jwt = false
 
-[functions.botmaker-webhook]
-verify_jwt = false
-
 [functions.botmaker-diagnostics]
 verify_jwt = true
 
 [functions.get-public-availability]
-verify_jwt = false
-
-[functions.botmaker-reprocess-conversation]
-verify_jwt = true
-
-[functions.botmaker-create-booking]
-verify_jwt = false
-
-[functions.botmaker-booking-tools]
 verify_jwt = false
 
 [functions.validate-address-location]
@@ -66,19 +54,7 @@ verify_jwt = true
 [functions.get-payment-receipt-signed-url]
 verify_jwt = true
 
-[functions.washi-agent]
-verify_jwt = false
-
-[functions.whatsapp-agent-diagnostics]
-verify_jwt = true
-
-[functions.whatsapp-agent-worker]
-verify_jwt = false
-
-[functions.whatsapp-agent-manual-retry]
-verify_jwt = true
-
-[functions.botmaker-tools]
+[functions.whatsapp-tools]
 verify_jwt = false
 
 [functions.sync-finance-expenses]

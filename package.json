@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:deno:coverage": "deno test supabase/functions/_shared/coverage.test.ts"
+    "test:deno:coverage": "deno test supabase/functions/_shared/coverage.test.ts",
+    "test:deno:whatsapp-cloud": "deno test --allow-env --no-lock supabase/functions/_shared/whatsapp-cloud.test.ts supabase/functions/_shared/botmaker-operator-templates.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

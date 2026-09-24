@@ -1,12 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import {
   buildOperatorBotmakerVariables,
-  buildOperatorTemplateLogPreview,
+  buildOperatorCustomerFacingText,
   getOperatorTemplate,
   isOperatorTemplateConfigured,
   parseOperatorWhatsappAction,
 } from "../_shared/botmaker-operator-templates.ts";
 import { sendBotmakerTemplateMessage } from "../_shared/botmaker-outbound.ts";
+import { isN8nOutboundEnabled } from "../_shared/whatsapp-cloud.ts";
 import { getOperatorGate, isStrictOperatorRole } from "../_shared/operator-auth.ts";
 
 const corsHeaders = {
@@ -30,6 +31,21 @@ type Payload = {
   variables?: Record<string, unknown> | null;
   message_text?: string | null;
 };
+
+function sendFailureMessage(error?: string | null): string {
+  const err = String(error ?? "");
+  if (err.includes("401") || err.includes("403") || err.includes("missing_meta") || err.includes("missing_botmaker_token")) {
+    return "WhatsApp rechazó el envío. Revisá las credenciales de Meta en las Edge Functions.";
+  }
+  if (err.includes("131047") || err.toLowerCase().includes("re-engagement")) {
+    return "Pasó la ventana de 24h de WhatsApp. Hace falta una plantilla aprobada.";
+  }
+  if (err.includes("invalid_phone") || err.includes("botmaker_missing_contact_id")) {
+    return "El teléfono del cliente no es válido para WhatsApp.";
+  }
+  if (err) return err;
+  return "No pudimos enviar el WhatsApp.";
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -101,12 +117,12 @@ Deno.serve(async (req) => {
   }
 
   const templateDef = getOperatorTemplate(actionKey);
-  if (!isOperatorTemplateConfigured(templateDef.templateKey)) {
+  if (!isN8nOutboundEnabled() && !isOperatorTemplateConfigured(templateDef.templateKey)) {
     return json(
       {
         ok: false,
         status: "template_not_configured",
-        message: `Plantilla Botmaker "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
+        message: `Plantilla WhatsApp "${templateDef.templateKey}" no configurada. Revisá BOTMAKER_CONFIGURED_TEMPLATES.`,
         template_key: templateDef.templateKey,
       },
       422,
@@ -125,9 +141,20 @@ Deno.serve(async (req) => {
     etaMinutes: Number.isFinite(etaMinutes) && etaMinutes > 0 ? Math.round(etaMinutes) : 20,
   });
 
-  const messagePreview = buildOperatorTemplateLogPreview(
-    templateDef.templateKey,
-    String(booking.customer_name ?? ""),
+  const messagePreview = buildOperatorCustomerFacingText(
+    actionKey,
+    {
+      customer_name: String(booking.customer_name ?? ""),
+      service_name: booking.service_name,
+      scheduled_date: String(booking.scheduled_date ?? today),
+      scheduled_time: String(booking.scheduled_time ?? ""),
+      formatted_address: booking.formatted_address,
+      address: booking.address,
+      price: booking.price,
+    },
+    {
+      etaMinutes: Number.isFinite(etaMinutes) && etaMinutes > 0 ? Math.round(etaMinutes) : 20,
+    },
   );
 
   const result = await sendBotmakerTemplateMessage(admin, {
@@ -144,10 +171,10 @@ Deno.serve(async (req) => {
     {
       ok: result.ok,
       status: result.status,
-      message: result.error ?? (result.ok ? "sent" : "failed"),
+      message: result.ok ? "sent" : sendFailureMessage(result.error),
       template_key: templateDef.templateKey,
       log_id: result.log_id ?? null,
     },
-    result.ok ? 200 : 502,
+    200,
   );
 });

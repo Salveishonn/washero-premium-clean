@@ -17,9 +17,7 @@ import { Route as PublicGraciasRouteImport } from './routes/_public.gracias'
 import { Route as PublicPrivacyRouteImport } from './routes/_public.privacy'
 import { Route as PublicReservarRouteImport } from './routes/_public.reservar'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
-import { Route as AdminAgenteWhatsappRouteImport } from './routes/admin.agente-whatsapp'
 import { Route as AdminAppConfigRouteImport } from './routes/admin.app-config'
-import { Route as AdminBotmakerRouteImport } from './routes/admin.botmaker'
 import { Route as AdminCalendarioRouteImport } from './routes/admin.calendario'
 import { Route as AdminClientesRouteImport } from './routes/admin.clientes'
 import { Route as AdminComprobantesRouteImport } from './routes/admin.comprobantes'
@@ -88,19 +86,9 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
-const AdminAgenteWhatsappRoute = AdminAgenteWhatsappRouteImport.update({
-  id: '/agente-whatsapp',
-  path: '/agente-whatsapp',
-  getParentRoute: () => AdminRoute,
-} as any)
 const AdminAppConfigRoute = AdminAppConfigRouteImport.update({
   id: '/app-config',
   path: '/app-config',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminBotmakerRoute = AdminBotmakerRouteImport.update({
-  id: '/botmaker',
-  path: '/botmaker',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminCalendarioRoute = AdminCalendarioRouteImport.update({
@@ -253,9 +241,7 @@ export interface FileRoutesByFullPath {
   '/gracias': typeof PublicGraciasRoute
   '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
-  '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
-  '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
@@ -290,9 +276,7 @@ export interface FileRoutesByTo {
   '/gracias': typeof PublicGraciasRoute
   '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
-  '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
-  '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
@@ -332,9 +316,7 @@ export interface FileRoutesById {
   '/_public/gracias': typeof PublicGraciasRoute
   '/_public/privacy': typeof PublicPrivacyRoute
   '/_public/reservar': typeof PublicReservarRoute
-  '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
-  '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
@@ -375,9 +357,7 @@ export interface FileRouteTypes {
     | '/gracias'
     | '/privacy'
     | '/reservar'
-    | '/admin/agente-whatsapp'
     | '/admin/app-config'
-    | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
     | '/admin/comprobantes'
@@ -412,9 +392,7 @@ export interface FileRouteTypes {
     | '/gracias'
     | '/privacy'
     | '/reservar'
-    | '/admin/agente-whatsapp'
     | '/admin/app-config'
-    | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
     | '/admin/comprobantes'
@@ -453,9 +431,7 @@ export interface FileRouteTypes {
     | '/_public/gracias'
     | '/_public/privacy'
     | '/_public/reservar'
-    | '/admin/agente-whatsapp'
     | '/admin/app-config'
-    | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
     | '/admin/comprobantes'
@@ -552,25 +528,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/admin/agente-whatsapp': {
-      id: '/admin/agente-whatsapp'
-      path: '/agente-whatsapp'
-      fullPath: '/admin/agente-whatsapp'
-      preLoaderRoute: typeof AdminAgenteWhatsappRouteImport
-      parentRoute: typeof AdminRoute
-    }
     '/admin/app-config': {
       id: '/admin/app-config'
       path: '/app-config'
       fullPath: '/admin/app-config'
       preLoaderRoute: typeof AdminAppConfigRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/botmaker': {
-      id: '/admin/botmaker'
-      path: '/botmaker'
-      fullPath: '/admin/botmaker'
-      preLoaderRoute: typeof AdminBotmakerRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/calendario': {
@@ -794,9 +756,7 @@ const PublicRouteWithChildren =
   PublicRoute._addFileChildren(PublicRouteChildren)
 
 interface AdminRouteChildren {
-  AdminAgenteWhatsappRoute: typeof AdminAgenteWhatsappRoute
   AdminAppConfigRoute: typeof AdminAppConfigRoute
-  AdminBotmakerRoute: typeof AdminBotmakerRoute
   AdminCalendarioRoute: typeof AdminCalendarioRoute
   AdminClientesRoute: typeof AdminClientesRoute
   AdminComprobantesRoute: typeof AdminComprobantesRoute
@@ -819,9 +779,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
-  AdminAgenteWhatsappRoute: AdminAgenteWhatsappRoute,
   AdminAppConfigRoute: AdminAppConfigRoute,
-  AdminBotmakerRoute: AdminBotmakerRoute,
   AdminCalendarioRoute: AdminCalendarioRoute,
   AdminClientesRoute: AdminClientesRoute,
   AdminComprobantesRoute: AdminComprobantesRoute,
@@ -879,3 +837,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
