@@ -48,9 +48,27 @@ function hasChainedBookingsDelete(source: string): boolean {
   return false;
 }
 
+function hasChainedTableDelete(source: string, table: string): boolean {
+  const re = new RegExp(`\\.from\\(\\s*["']${table}["']\\s*\\)([\\s\\S]{0,400})`, "g");
+  for (const match of source.matchAll(re)) {
+    const window = match[1] ?? "";
+    const deleteIdx = window.search(/\.delete\s*\(/);
+    if (deleteIdx < 0) continue;
+    const nextFrom = window.search(/\.from\s*\(/);
+    if (nextFrom >= 0 && nextFrom < deleteIdx) continue;
+    return true;
+  }
+  return false;
+}
+
 function hasBookingProofsRemove(source: string): boolean {
   return /storage\.from\(\s*["']booking-proofs["']\s*\)[\s\S]{0,200}\.remove\s*\(/.test(source) ||
     /\.from\(\s*["']booking-proofs["']\s*\)[\s\S]{0,200}\.remove\s*\(/.test(source);
+}
+
+function hasPaymentReceiptsStorageRemove(source: string): boolean {
+  return /storage\.from\(\s*["']payment-receipts["']\s*\)[\s\S]{0,200}\.remove\s*\(/.test(source) ||
+    /\.from\(\s*["']payment-receipts["']\s*\)[\s\S]{0,200}\.remove\s*\(/.test(source);
 }
 
 describe("admin-delete-booking edge function", () => {
@@ -71,9 +89,24 @@ describe("admin-delete-booking edge function", () => {
   it("accepts only booking_id and derives storage paths from the trusted UUID", () => {
     expect(helper).toContain("parseDeleteBookingRequest");
     expect(edge).toContain("parseDeleteBookingRequest(body)");
-    expect(edge).not.toMatch(/body\.(storage_path|path|prefix)/);
+    expect(edge).not.toMatch(/body\.(storage_path|path|prefix|is_test|force|override|cleanup_mode)/);
     expect(helper).toContain("bookingProofPrefix");
     expect(helper).toContain("enumerateBookingProofPaths");
+    expect(helper).toContain("isInternalTestBooking");
+  });
+
+  it("runs the financial guard before any destructive cleanup", () => {
+    const fn = helper.slice(helper.indexOf("export async function runCanonicalBookingHardDelete"));
+    const blockIdx = fn.indexOf("financial_evidence_exists");
+    const receiptIdx = fn.indexOf("runPaymentReceiptCleanup");
+    const proofIdx = fn.indexOf("enumerateBookingProofPaths");
+    const invoiceIdx = fn.indexOf("deleteInvoices");
+    const bookingIdx = fn.indexOf("const deleted = await ports.deleteBooking(bookingId)");
+    expect(blockIdx).toBeGreaterThan(0);
+    expect(receiptIdx).toBeGreaterThan(blockIdx);
+    expect(proofIdx).toBeGreaterThan(receiptIdx);
+    expect(invoiceIdx).toBeGreaterThan(proofIdx);
+    expect(bookingIdx).toBeGreaterThan(invoiceIdx);
   });
 
   it("deletes storage under the booking prefix before deleting the booking row", () => {
@@ -84,7 +117,19 @@ describe("admin-delete-booking edge function", () => {
     expect(storageIdx).toBeGreaterThan(0);
     expect(bookingIdx).toBeGreaterThan(storageIdx);
     expect(edge).toContain("BOOKING_PROOFS_BUCKET");
+    expect(edge).toContain("PAYMENT_RECEIPTS_BUCKET");
     expect(edge).toContain('from("bookings").delete()');
+  });
+
+  it("does not clean payment-receipts when the booking is already absent", () => {
+    const fn = helper.slice(helper.indexOf("export async function runCanonicalBookingHardDelete"));
+    const existsIdx = fn.indexOf("if (booking.exists)");
+    const receiptIdx = fn.indexOf("runPaymentReceiptCleanup");
+    const alreadyIdx = fn.indexOf('financialGuard = "already_deleted"');
+    expect(existsIdx).toBeGreaterThan(0);
+    expect(receiptIdx).toBeGreaterThan(existsIdx);
+    expect(alreadyIdx).toBeGreaterThan(receiptIdx);
+    expect(edge).not.toMatch(/\.is\(\s*["']booking_id["']\s*,\s*null\s*\)/);
   });
 
   it("is retryable when storage is already gone or the booking is already deleted", () => {
@@ -132,6 +177,18 @@ describe("production frontend hard-delete contract", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("does not delete payment_receipts or payment-receipts storage from production frontend code", () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      const rel = relative(REPO_ROOT, file).replaceAll("\\", "/");
+      const source = readRepoFile(rel);
+      if (hasChainedTableDelete(source, "payment_receipts") || hasPaymentReceiptsStorageRemove(source)) {
+        offenders.push(rel);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("routes admin and HealthTab cleanup through the Edge Function", () => {
     const client = readRepoFile(CLIENT);
     const health = readRepoFile(HEALTH);
@@ -141,6 +198,7 @@ describe("production frontend hard-delete contract", () => {
     expect(client).not.toMatch(/from\("invoices"\)\s*\.delete/);
     expect(client).not.toMatch(/from\("booking_proof_media"\)/);
     expect(health).toContain("deleteBooking");
+    expect(health).toContain("HEALTHCHECK_DELETE_ME_");
     expect(health).not.toMatch(/from\("bookings"\)\s*\.delete/);
   });
 });
