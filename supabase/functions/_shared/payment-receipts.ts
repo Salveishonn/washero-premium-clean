@@ -2,16 +2,17 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pick, normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
+import {
+  capturePaymentReceipt,
+  type CapturePaymentReceiptInput,
+  type CapturePaymentReceiptResult,
+  type InboundReceiptMedia,
+  type PaymentReceiptCapturePorts,
+  type PaymentReceiptInsertRow,
+} from "./payment-receipt-capture.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";
-
-export type InboundReceiptMedia = {
-  messageType: string;
-  mediaUrl: string;
-  mimeType: string | null;
-  fileName: string | null;
-  caption: string | null;
-};
+export type { CapturePaymentReceiptInput, CapturePaymentReceiptResult, InboundReceiptMedia };
 
 function foldMime(v: string | null | undefined): string {
   return String(v ?? "").trim().toLowerCase();
@@ -199,18 +200,6 @@ export async function matchTransferBookingForReceipt(
   return { bookingId: null, receiptStatus: "unresolved" };
 }
 
-function safeFileName(name: string | null, mimeType: string | null): string {
-  const base = (name ?? "").trim() || "comprobante";
-  const cleaned = base.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  if (cleaned.includes(".")) return cleaned;
-  const mime = foldMime(mimeType);
-  if (mime === "application/pdf") return `${cleaned}.pdf`;
-  if (mime === "image/png") return `${cleaned}.png`;
-  if (mime === "image/webp") return `${cleaned}.webp`;
-  if (mime.startsWith("image/")) return `${cleaned}.jpg`;
-  return `${cleaned}.bin`;
-}
-
 export async function ensurePaymentReceiptsBucket(admin: SupabaseClient): Promise<void> {
   const { data: buckets, error } = await admin.storage.listBuckets();
   if (error) {
@@ -259,90 +248,52 @@ async function downloadReceiptMedia(mediaUrl: string): Promise<
   }
 }
 
-export type CapturePaymentReceiptInput = {
-  phone: string | null;
-  customerPhoneNormalized?: string | null;
-  botmakerMessageId?: string | null;
-  media: InboundReceiptMedia;
-  rawPayload: Record<string, unknown>;
-};
+function makeCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
+  return {
+    async findDuplicateId(botmakerMessageId) {
+      const { data: dup } = await admin
+        .from("payment_receipts")
+        .select("id")
+        .eq("botmaker_message_id", botmakerMessageId)
+        .maybeSingle();
+      return dup?.id ? String(dup.id) : null;
+    },
+    matchBooking: (phone) => matchTransferBookingForReceipt(admin, phone),
+    ensureBucket: () => ensurePaymentReceiptsBucket(admin),
+    downloadMedia: downloadReceiptMedia,
+    async uploadObject(path, bytes, contentType) {
+      const { error } = await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).upload(path, bytes, {
+        contentType,
+        upsert: false,
+      });
+      return { error: error ? { message: error.message } : null };
+    },
+    async insertReceipt(row: PaymentReceiptInsertRow) {
+      // Insert without select/single so row creation success is unambiguous.
+      const { error } = await admin.from("payment_receipts").insert(row);
+      return { error: error ? { code: (error as { code?: string }).code } : null };
+    },
+    async removeExact(exactPaths) {
+      return await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).remove(exactPaths);
+    },
+    now: () => Date.now(),
+    createId: () => crypto.randomUUID(),
+    logSafe(fields) {
+      console.error("[payment-receipts]", JSON.stringify(fields));
+    },
+  };
+}
 
 export async function capturePaymentReceiptFromBotmaker(
   admin: SupabaseClient,
   input: CapturePaymentReceiptInput,
-): Promise<{ ok: boolean; receiptId?: string; error?: string }> {
-  if (input.botmakerMessageId) {
-    const { data: dup } = await admin
-      .from("payment_receipts")
-      .select("id")
-      .eq("botmaker_message_id", input.botmakerMessageId)
-      .maybeSingle();
-    if (dup?.id) return { ok: true, receiptId: dup.id, error: "duplicate_message" };
-  }
-
-  const phone = input.customerPhoneNormalized ??
+): Promise<CapturePaymentReceiptResult> {
+  const customerPhoneNormalized =
+    input.customerPhoneNormalized ??
     normalizeArgentinaWhatsAppPhone(input.phone) ??
     normalizePhone(input.phone);
-
-  const { bookingId, receiptStatus } = await matchTransferBookingForReceipt(admin, phone);
-  const folder = bookingId ?? "unresolved";
-  const timestamp = Date.now();
-  const fileName = safeFileName(input.media.fileName, input.media.mimeType);
-  const storagePath = `${folder}/${timestamp}-${fileName}`;
-
-  await ensurePaymentReceiptsBucket(admin);
-
-  let mimeType = input.media.mimeType;
-  let fileSize: number | null = null;
-  let uploadOk = false;
-
-  const downloaded = await downloadReceiptMedia(input.media.mediaUrl);
-  if (downloaded) {
-    mimeType = mimeType || downloaded.contentType;
-    fileSize = downloaded.bytes.byteLength;
-    const { error: upErr } = await admin.storage
-      .from(PAYMENT_RECEIPTS_BUCKET)
-      .upload(storagePath, downloaded.bytes, {
-        contentType: mimeType || downloaded.contentType,
-        upsert: false,
-      });
-    if (upErr) {
-      console.error("[payment-receipts] storage upload failed", upErr);
-    } else {
-      uploadOk = true;
-    }
-  }
-
-  const { data: inserted, error: insErr } = await admin
-    .from("payment_receipts")
-    .insert({
-      booking_id: bookingId,
-      customer_phone: phone,
-      source: "whatsapp",
-      botmaker_message_id: input.botmakerMessageId ?? null,
-      media_url: input.media.mediaUrl,
-      storage_bucket: PAYMENT_RECEIPTS_BUCKET,
-      storage_path: uploadOk ? storagePath : null,
-      mime_type: mimeType,
-      file_name: fileName,
-      file_size: fileSize,
-      status: receiptStatus,
-      raw_payload: {
-        capture: {
-          message_type: input.media.messageType,
-          upload_ok: uploadOk,
-          booking_match: bookingId ? "single" : receiptStatus,
-        },
-        botmaker: input.rawPayload,
-      },
-    })
-    .select("id")
-    .maybeSingle();
-
-  if (insErr || !inserted?.id) {
-    console.error("[payment-receipts] insert failed", insErr);
-    return { ok: false, error: "insert_failed" };
-  }
-
-  return { ok: true, receiptId: inserted.id };
+  return capturePaymentReceipt(makeCapturePorts(admin), {
+    ...input,
+    customerPhoneNormalized,
+  });
 }
