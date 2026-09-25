@@ -1482,6 +1482,7 @@ export type Database = {
           reviewed_at: string | null;
           notes: string | null;
           raw_payload: Json | null;
+          external_message_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -1502,6 +1503,7 @@ export type Database = {
           reviewed_at?: string | null;
           notes?: string | null;
           raw_payload?: Json | null;
+          external_message_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -1522,6 +1524,7 @@ export type Database = {
           reviewed_at?: string | null;
           notes?: string | null;
           raw_payload?: Json | null;
+          external_message_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
