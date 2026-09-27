@@ -1,0 +1,40 @@
+{
+  "name": "Washero WhatsApp Inbound (deterministic) — Phase R prepared wiring",
+  "live_n8n_modified": false,
+  "notes": "Sanitized node order only. No credentials, tokens, or customer data. Capture runs before the reply gate so a retried wamid can persist the receipt even when ingest_message returns should_bot_reply=false.",
+  "nodes": [
+    { "name": "WhatsApp Trigger", "type": "n8n-nodes-base.whatsAppTrigger" },
+    { "name": "Normalize Inbound", "type": "n8n-nodes-base.code", "source": "scripts/n8n-washero-normalize-inbound.js" },
+    {
+      "name": "ingest_message",
+      "type": "n8n-nodes-base.httpRequest",
+      "tool": "ingest_message",
+      "auth": "header-ref:Washero whatsapp-tools"
+    },
+    {
+      "name": "Media Receipt Capture",
+      "type": "n8n-nodes-base.httpRequest",
+      "tool": "ingest_receipt",
+      "when": "image or eligible PDF/document",
+      "awaiting_receipt_required": false,
+      "args": ["media_id", "mime_type", "file_name", "message_type", "external_message_id=wamid", "customer_phone"]
+    },
+    { "name": "should_bot_reply gate", "type": "n8n-nodes-base.if" },
+    { "name": "Get conversation state", "type": "n8n-nodes-base.httpRequest", "tool": "get_conversation_state" },
+    { "name": "Flow Router", "type": "n8n-nodes-base.code", "source": "scripts/n8n-washero-flow-router.js" },
+    { "name": "WhatsApp outbound", "type": "n8n-nodes-base.whatsApp" },
+    {
+      "name": "ingest outbound message",
+      "type": "n8n-nodes-base.httpRequest",
+      "tool": "ingest_message",
+      "direction": "outbound"
+    }
+  ],
+  "delta_from_live": [
+    "Insert Media Receipt Capture after ingest_message and before should_bot_reply.",
+    "Call ingest_receipt for image/eligible PDF even when awaiting_receipt is false.",
+    "Flow Router short-circuits pending_review/unresolved/duplicate instead of the old MISS copy.",
+    "not_eligible continues the existing deterministic router.",
+    "Remove any routing that treats capture as paid."
+  ]
+}

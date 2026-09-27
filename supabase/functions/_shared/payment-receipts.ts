@@ -4,14 +4,23 @@ import { pick, normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
 import {
   capturePaymentReceipt,
+  isReceiptLikeMedia,
+  type BookingMatchResult,
   type CapturePaymentReceiptInput,
   type CapturePaymentReceiptResult,
+  type ExistingPaymentReceipt,
   type InboundReceiptMedia,
   type PaymentReceiptCapturePorts,
+  type PaymentReceiptInsertError,
   type PaymentReceiptInsertRow,
 } from "./payment-receipt-capture.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";
+export {
+  isReceiptLikeMedia,
+  PAYMENT_RECEIPT_MAX_BYTES,
+  PAYMENT_RECEIPTS_CAPTURE_BUCKET,
+} from "./payment-receipt-capture.ts";
 export type { CapturePaymentReceiptInput, CapturePaymentReceiptResult, InboundReceiptMedia };
 
 function foldMime(v: string | null | undefined): string {
@@ -47,7 +56,10 @@ export function extractInboundReceiptMedia(payload: Record<string, unknown>): In
   ).toLowerCase();
 
   let messageType = rawType || "text";
-  if (messageType.includes("image") || messageType === "photo" || messageType === "sticker") {
+  if (messageType === "sticker") {
+    return null;
+  }
+  if (messageType.includes("image") || messageType === "photo") {
     messageType = "image";
   } else if (
     messageType.includes("document") ||
@@ -117,24 +129,6 @@ export function extractInboundReceiptMedia(payload: Record<string, unknown>): In
   };
 }
 
-export function isReceiptLikeMedia(
-  messageType: string,
-  mimeType: string | null,
-  fileName: string | null,
-): boolean {
-  const type = messageType.toLowerCase();
-  const mime = foldMime(mimeType);
-  const name = foldMime(fileName);
-
-  if (type === "image" || type === "document") return true;
-  if (mime.startsWith("image/")) return true;
-  if (mime === "application/pdf") return true;
-  if (name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") ||
-    name.endsWith(".png") || name.endsWith(".webp")) {
-    return true;
-  }
-  return false;
-}
 
 function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   const na = normalizeArgentinaWhatsAppPhone(a) ?? normalizePhone(a)?.replace(/\D/g, "") ?? null;
@@ -160,8 +154,8 @@ type BookingMatchRow = {
 export async function matchTransferBookingForReceipt(
   admin: SupabaseClient,
   phone: string | null,
-): Promise<{ bookingId: string | null; receiptStatus: "pending_review" | "unresolved" }> {
-  if (!phone) return { bookingId: null, receiptStatus: "unresolved" };
+): Promise<BookingMatchResult> {
+  if (!phone) return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
 
   const today = todayBuenosAiresIso();
   const { data: rows, error } = await admin
@@ -177,7 +171,7 @@ export async function matchTransferBookingForReceipt(
 
   if (error) {
     console.warn("[payment-receipts] booking match query failed", error);
-    return { bookingId: null, receiptStatus: "unresolved" };
+    return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
   }
 
   const matches = ((rows ?? []) as BookingMatchRow[]).filter((b) =>
@@ -185,19 +179,19 @@ export async function matchTransferBookingForReceipt(
   );
 
   if (matches.length === 0) {
-    return { bookingId: null, receiptStatus: "unresolved" };
+    return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
   }
 
   if (matches.length === 1) {
-    return { bookingId: matches[0].id, receiptStatus: "pending_review" };
+    return { bookingId: matches[0].id, receiptStatus: "pending_review", eligibleCount: 1 };
   }
 
   const pendingOnly = matches.filter((b) => b.booking_status === "pending");
   if (pendingOnly.length === 1) {
-    return { bookingId: pendingOnly[0].id, receiptStatus: "pending_review" };
+    return { bookingId: pendingOnly[0].id, receiptStatus: "pending_review", eligibleCount: 1 };
   }
 
-  return { bookingId: null, receiptStatus: "unresolved" };
+  return { bookingId: null, receiptStatus: "unresolved", eligibleCount: matches.length };
 }
 
 export async function ensurePaymentReceiptsBucket(admin: SupabaseClient): Promise<void> {
@@ -248,19 +242,39 @@ async function downloadReceiptMedia(mediaUrl: string): Promise<
   }
 }
 
-function makeCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
+function asExistingReceipt(row: {
+  id?: unknown;
+  status?: unknown;
+  booking_id?: unknown;
+} | null | undefined): ExistingPaymentReceipt | null {
+  if (!row?.id) return null;
   return {
-    async findDuplicateId(botmakerMessageId) {
+    id: String(row.id),
+    status: row.status == null ? null : String(row.status),
+    booking_id: row.booking_id == null ? null : String(row.booking_id),
+  };
+}
+
+export function makePaymentReceiptCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
+  return {
+    async findDuplicateByExternalMessageId(externalMessageId) {
       const { data: dup } = await admin
         .from("payment_receipts")
-        .select("id")
+        .select("id, status, booking_id")
+        .eq("external_message_id", externalMessageId)
+        .maybeSingle();
+      return asExistingReceipt(dup);
+    },
+    async findDuplicateByBotmakerMessageId(botmakerMessageId) {
+      const { data: dup } = await admin
+        .from("payment_receipts")
+        .select("id, status, booking_id")
         .eq("botmaker_message_id", botmakerMessageId)
         .maybeSingle();
-      return dup?.id ? String(dup.id) : null;
+      return asExistingReceipt(dup);
     },
     matchBooking: (phone) => matchTransferBookingForReceipt(admin, phone),
     ensureBucket: () => ensurePaymentReceiptsBucket(admin),
-    downloadMedia: downloadReceiptMedia,
     async uploadObject(path, bytes, contentType) {
       const { error } = await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).upload(path, bytes, {
         contentType,
@@ -271,7 +285,16 @@ function makeCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
     async insertReceipt(row: PaymentReceiptInsertRow) {
       // Insert without select/single so row creation success is unambiguous.
       const { error } = await admin.from("payment_receipts").insert(row);
-      return { error: error ? { code: (error as { code?: string }).code } : null };
+      if (!error) return { error: null };
+      const err = error as PaymentReceiptInsertError;
+      return {
+        error: {
+          code: err.code,
+          message: err.message,
+          details: err.details,
+          hint: err.hint,
+        },
+      };
     },
     async removeExact(exactPaths) {
       return await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).remove(exactPaths);
@@ -284,16 +307,39 @@ function makeCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
   };
 }
 
+/**
+ * Botmaker transport adapter. Preserves zero-match persistence (unresolved row)
+ * and insert-without-object fallback when Botmaker media cannot be downloaded.
+ */
 export async function capturePaymentReceiptFromBotmaker(
   admin: SupabaseClient,
-  input: CapturePaymentReceiptInput,
+  input: {
+    phone: string | null;
+    customerPhoneNormalized?: string | null;
+    botmakerMessageId?: string | null;
+    media: InboundReceiptMedia;
+    rawPayload: Record<string, unknown>;
+  },
 ): Promise<CapturePaymentReceiptResult> {
   const customerPhoneNormalized =
     input.customerPhoneNormalized ??
     normalizeArgentinaWhatsAppPhone(input.phone) ??
     normalizePhone(input.phone);
-  return capturePaymentReceipt(makeCapturePorts(admin), {
-    ...input,
+  const mediaUrl = input.media.mediaUrl;
+  return capturePaymentReceipt(makePaymentReceiptCapturePorts(admin), {
+    phone: input.phone,
     customerPhoneNormalized,
+    botmakerMessageId: input.botmakerMessageId ?? null,
+    externalMessageId: null,
+    media: input.media,
+    rawPayload: input.rawPayload,
+    sourceContext: { transport: "botmaker" },
+    persistZeroMatch: true,
+    mediaFailurePolicy: "insert_without_object",
+    loadMediaBytes: async () => {
+      const downloaded = await downloadReceiptMedia(mediaUrl);
+      if (!downloaded) return { ok: false, reason: "download_failed" };
+      return { ok: true, bytes: downloaded.bytes, contentType: downloaded.contentType };
+    },
   });
 }
