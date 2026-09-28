@@ -2,20 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import {
-  AlertTriangle,
-  CalendarClock,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardList,
-  Plus,
-  Search,
-  Wallet,
-} from "lucide-react";
+import { ClipboardList, Plus, RefreshCw, Search } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -54,8 +45,29 @@ import {
 } from "@/components/admin/bookings";
 import { DayCarousel } from "@/components/admin/ops/DayCarousel";
 import { DayTimeline } from "@/components/admin/ops/DayTimeline";
+import { OperationsDayFilters } from "@/components/admin/ops/OperationsDayFilters";
+import { OperationsDaySummary } from "@/components/admin/ops/OperationsDaySummary";
 import { addDays, isoOf, startOfLocalDay } from "@/lib/admin-dates";
-import { cn } from "@/lib/utils";
+import {
+  hubBuildRowState,
+  hubDaySummary,
+  hubOperatorLabel,
+  hubSelectedDayTitle,
+  indexByBookingId,
+  indexOperationsByBookingId,
+  indexStaffById,
+  matchesHubFilter,
+  selectNextBookingId,
+  type HubFilter,
+  type HubOpsLoadState,
+  type HubReceiptsLoadState,
+  type HubStaffLoadState,
+} from "@/lib/admin-operations-hub";
+import { fetchHubOperations, fetchHubReceipts } from "@/lib/admin-operations-hub-data";
+import {
+  ADMIN_OPERATOR_STAFF_QUERY_KEY,
+  fetchAdminOperatorStaffList,
+} from "@/lib/admin-operator-assignment";
 
 const opsSearchSchema = z.object({
   view: z.enum(["day", "list"]).optional(),
@@ -74,31 +86,6 @@ export const Route = createFileRoute("/admin/")({
 
 type DateFilter = "all" | "today" | "tomorrow" | "week" | "future" | "past" | "day";
 
-async function fetchMetrics() {
-  const today = todayIso();
-  const [todayCount, upcoming, needsReview, pendingPay, completed, requestsReview] =
-    await Promise.all([
-      supabase.from("bookings").select("id", { count: "exact", head: true }).eq("scheduled_date", today),
-      supabase
-        .from("bookings")
-        .select("id", { count: "exact", head: true })
-        .gte("scheduled_date", today)
-        .in("booking_status", ["pending", "confirmed", "needs_review"]),
-      supabase.from("bookings").select("id", { count: "exact", head: true }).eq("booking_status", "needs_review"),
-      supabase.from("bookings").select("id", { count: "exact", head: true }).eq("payment_status", "pending"),
-      supabase.from("bookings").select("id", { count: "exact", head: true }).eq("booking_status", "completed"),
-      supabase.from("booking_requests").select("id", { count: "exact", head: true }).eq("status", "needs_review"),
-    ]);
-
-  return {
-    today: todayCount.count ?? 0,
-    upcoming: upcoming.count ?? 0,
-    needsReview: (needsReview.count ?? 0) + (requestsReview.count ?? 0),
-    pendingPayments: pendingPay.count ?? 0,
-    completed: completed.count ?? 0,
-  };
-}
-
 function AdminOpsHub() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -112,6 +99,7 @@ function AdminOpsHub() {
   const [paymentFilter, setPaymentFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [showAll, setShowAll] = useState(search.view === "list");
+  const [dayFilter, setDayFilter] = useState<HubFilter>("all");
 
   const [editing, setEditing] = useState<Booking | null>(null);
   const [creating, setCreating] = useState(false);
@@ -166,6 +154,26 @@ function AdminOpsHub() {
     },
   });
 
+  const bookingIds = useMemo(() => (rangeQuery.data ?? []).map((b) => b.id), [rangeQuery.data]);
+  const bookingIdsKey = bookingIds.join(",");
+
+  const operationsQuery = useQuery({
+    queryKey: ["admin", "ops-operations", carouselStart, carouselEnd, bookingIdsKey],
+    enabled: rangeQuery.isSuccess,
+    queryFn: () => fetchHubOperations(bookingIds),
+  });
+
+  const receiptsQuery = useQuery({
+    queryKey: ["admin", "ops-receipts", carouselStart, carouselEnd, bookingIdsKey],
+    enabled: rangeQuery.isSuccess,
+    queryFn: () => fetchHubReceipts(bookingIds),
+  });
+
+  const staffQuery = useQuery({
+    queryKey: ADMIN_OPERATOR_STAFF_QUERY_KEY,
+    queryFn: fetchAdminOperatorStaffList,
+  });
+
   const listQuery = useQuery({
     queryKey: ["admin", "bookings", { dateFilter, statusFilter, paymentFilter, sourceFilter, selectedDate }],
     enabled: showAll,
@@ -196,8 +204,6 @@ function AdminOpsHub() {
     },
   });
 
-  const metrics = useQuery({ queryKey: ["admin", "metrics"], queryFn: fetchMetrics });
-
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const b of rangeQuery.data ?? []) {
@@ -212,15 +218,52 @@ function AdminOpsHub() {
     [rangeQuery.data, selectedDate],
   );
 
-  const queue = useMemo(() => {
-    const rows = rangeQuery.data ?? [];
-    return {
-      review: rows.filter((b) => b.booking_status === "needs_review").slice(0, 6),
-      unpaid: rows
-        .filter((b) => b.payment_status === "pending" && b.booking_status !== "cancelled")
-        .slice(0, 6),
-    };
-  }, [rangeQuery.data]);
+  const opsLoad: HubOpsLoadState = operationsQuery.isError || !operationsQuery.isSuccess ? "unavailable" : "ok";
+  const receiptsLoad: HubReceiptsLoadState =
+    receiptsQuery.isError || !receiptsQuery.isSuccess ? "unavailable" : "ok";
+  const staffLoad: HubStaffLoadState = staffQuery.isError || !staffQuery.isSuccess ? "unavailable" : "ok";
+
+  const operationsById = useMemo(
+    () => indexOperationsByBookingId(operationsQuery.data ?? []),
+    [operationsQuery.data],
+  );
+  const receiptsById = useMemo(() => indexByBookingId(receiptsQuery.data ?? []), [receiptsQuery.data]);
+  const staffById = useMemo(() => indexStaffById(staffQuery.data ?? []), [staffQuery.data]);
+
+  const dayRows = useMemo(() => {
+    return dayBookings.map((booking) =>
+      hubBuildRowState({
+        booking,
+        operation: operationsById.get(booking.id) ?? null,
+        receipts: receiptsById.get(booking.id) ?? [],
+        opsLoad,
+        receiptsLoad,
+      }),
+    );
+  }, [dayBookings, operationsById, receiptsById, opsLoad, receiptsLoad]);
+
+  const rowsById = useMemo(() => {
+    const map = new Map(dayRows.map((row) => [row.bookingId, row]));
+    return map;
+  }, [dayRows]);
+
+  const summary = useMemo(() => hubDaySummary(dayRows), [dayRows]);
+  const nextBookingId = useMemo(() => selectNextBookingId(dayRows), [dayRows]);
+
+  const filteredDayBookings = useMemo(() => {
+    return dayBookings.filter((booking) => {
+      const row = rowsById.get(booking.id);
+      return row ? matchesHubFilter(row, dayFilter) : false;
+    });
+  }, [dayBookings, rowsById, dayFilter]);
+
+  const operatorLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const booking of dayBookings) {
+      map.set(booking.id, hubOperatorLabel(booking.assigned_operator_id, staffById, staffLoad));
+    }
+    return map;
+  }, [dayBookings, staffById, staffLoad]);
 
   const filteredList = useMemo(() => {
     const term = listSearch.trim().toLowerCase();
@@ -250,6 +293,7 @@ function AdminOpsHub() {
       search: (prev) => ({ ...prev, date: iso, view: "day", filter: undefined }),
     });
     setDateFilter("day");
+    setDayFilter("all");
   };
 
   const openBooking = (bookingId: string) => {
@@ -259,10 +303,6 @@ function AdminOpsHub() {
     });
   };
 
-  const applyKpi = (filter: NonNullable<z.infer<typeof opsSearchSchema>["filter"]>) => {
-    void navigate({ to: "/admin/", search: (prev) => ({ ...prev, filter, view: "list" }) });
-  };
-
   const dateLabel = new Intl.DateTimeFormat("es-AR", {
     weekday: "long",
     day: "numeric",
@@ -270,22 +310,24 @@ function AdminOpsHub() {
     year: "numeric",
   }).format(new Date());
 
-  const cards = [
-    { key: "today" as const, label: "Hoy", value: metrics.data?.today, icon: CalendarDays },
-    { key: "upcoming" as const, label: "Próximas", value: metrics.data?.upcoming, icon: CalendarClock },
-    { key: "review" as const, label: "A revisar", value: metrics.data?.needsReview, icon: AlertTriangle },
-    { key: "unpaid" as const, label: "Pago pendiente", value: metrics.data?.pendingPayments, icon: Wallet },
-    { key: "completed" as const, label: "Completadas", value: metrics.data?.completed, icon: CheckCircle2 },
-  ];
+  const hubReady = rangeQuery.isSuccess && operationsQuery.isFetched && receiptsQuery.isFetched;
+  const summaryTitle = hubSelectedDayTitle(selectedDate, today);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 overflow-x-hidden">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Operación</h1>
           <p className="text-sm capitalize text-muted-foreground">{dateLabel}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => qc.invalidateQueries({ queryKey: ["admin"] })}
+          >
+            <RefreshCw className="mr-1 h-4 w-4" /> Actualizar
+          </Button>
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="mr-1 h-4 w-4" /> Nueva reserva
           </Button>
@@ -295,94 +337,45 @@ function AdminOpsHub() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {cards.map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            onClick={() => applyKpi(c.key)}
-            className="text-left"
-          >
-            <Card
-              className={cn(
-                "transition-colors hover:border-primary/40",
-                search.filter === c.key && "border-primary",
-              )}
-            >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{c.label}</CardTitle>
-                <c.icon className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                {metrics.isLoading ? (
-                  <Skeleton className="h-7 w-12" />
-                ) : (
-                  <div className="text-2xl font-semibold">{c.value ?? 0}</div>
-                )}
-              </CardContent>
-            </Card>
-          </button>
-        ))}
-      </div>
-
-      <DayCarousel selectedIso={selectedDate} todayIso={today} counts={counts} onSelect={setDate} />
-
-      {rangeQuery.isLoading ? (
-        <Skeleton className="h-64 w-full" />
+      {rangeQuery.isError ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-destructive">
+            No pudimos cargar las reservas. Actualizá e intentá de nuevo.
+          </CardContent>
+        </Card>
       ) : (
-        <DayTimeline
-          dateIso={selectedDate}
-          bookings={dayBookings}
-          onSelect={(b) => openBooking(b.id)}
-          onCreate={() => setCreating(true)}
-        />
-      )}
+        <>
+          {rangeQuery.isLoading || !hubReady ? (
+            <Skeleton className="h-20 w-full" />
+          ) : (
+            <OperationsDaySummary title={summaryTitle} summary={summary} />
+          )}
 
-      {(queue.review.length > 0 || queue.unpaid.length > 0) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {queue.review.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Pendientes de revisión</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {queue.review.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left text-sm hover:bg-muted/50"
-                    onClick={() => openBooking(b.id)}
-                  >
-                    <span className="truncate">{b.customer_name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {fmtDate(b.scheduled_date)} {fmtTime(b.scheduled_time)}
-                    </span>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
+          <DayCarousel selectedIso={selectedDate} todayIso={today} counts={counts} onSelect={setDate} />
+
+          <OperationsDayFilters value={dayFilter} onChange={setDayFilter} />
+
+          {rangeQuery.isLoading || !hubReady ? (
+            <Skeleton className="h-64 w-full" />
+          ) : (
+            <DayTimeline
+              dateIso={selectedDate}
+              bookings={filteredDayBookings}
+              rowsById={rowsById}
+              operationsById={operationsById}
+              operatorLabelById={operatorLabelById}
+              nextBookingId={nextBookingId}
+              opsLoad={opsLoad}
+              opsError={operationsQuery.isError}
+              receiptsError={receiptsQuery.isError}
+              emptyFilter={dayBookings.length > 0 && filteredDayBookings.length === 0}
+              onCreate={() => setCreating(true)}
+              onRetryOps={() => {
+                void operationsQuery.refetch();
+              }}
+            />
           )}
-          {queue.unpaid.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Pagos pendientes</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {queue.unpaid.map((b) => (
-                  <button
-                    key={b.id}
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left text-sm hover:bg-muted/50"
-                    onClick={() => openBooking(b.id)}
-                  >
-                    <span className="truncate">{b.customer_name}</span>
-                    <span className="shrink-0 text-xs font-medium">{formatPrice(b.price)}</span>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        </>
       )}
 
       <div className="flex items-center justify-between gap-2">
