@@ -7,7 +7,7 @@
 // project, not here (see booking-concurrency.integration.test.ts).
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { AGENT_TOOLS, buildBookingIdempotencyKey, findTool } from "./tools.ts";
+import { AGENT_TOOLS, buildBookingIdempotencyKey, customerOwnsStoredPhone, customerPhoneVariants, findTool } from "./tools.ts";
 
 // Never actually invoked on the validation-failure paths under test — those `return` before any
 // `admin.*` call — so an unimplemented stub is enough to prove no DB call happened.
@@ -33,7 +33,9 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "get_customer_by_phone",
     "get_services",
     "get_service_details",
+    "suggest_addresses",
     "validate_service_area",
+    "list_coverage_zones",
     "get_available_dates",
     "get_available_slots",
     "calculate_booking_price",
@@ -42,6 +44,10 @@ Deno.test("AGENT_TOOLS exposes exactly the tools required by the spec, no duplic
     "list_customer_bookings",
     "cancel_booking",
     "reschedule_booking",
+    "get_bank_transfer_details",
+    "get_payment_link",
+    "get_conversation_state",
+    "set_conversation_state",
     "request_human_handoff",
   ];
   const names = AGENT_TOOLS.map((t) => t.name);
@@ -68,6 +74,7 @@ Deno.test(
       "list_customer_bookings",
       "cancel_booking",
       "reschedule_booking",
+      "get_payment_link",
     ]) {
       const tool = findTool(name)!;
       const keys = Object.keys(tool.input_schema.properties);
@@ -319,3 +326,86 @@ Deno.test(
     assertEquals(key, "whatsapp_agent:conv-1:2026-08-01:10:00");
   },
 );
+
+Deno.test("customerPhoneVariants matches WhatsApp digits to stored display format", () => {
+  const variants = customerPhoneVariants("5491100000001");
+  assert(variants.includes("+54 9 11 0000-0001"));
+  assert(variants.includes("5491100000001"));
+  assertEquals(customerOwnsStoredPhone("+54 9 11 0000-0001", "5491100000001"), true);
+  assertEquals(customerOwnsStoredPhone("+54 9 11 9999-0001", "5491100000001"), false);
+});
+
+Deno.test("set_conversation_state rejects missing state without touching the DB", async () => {
+  const tool = findTool("set_conversation_state")!;
+  const result = await tool.execute(unreachableAdmin, { data: { misses: 0 } }, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("set_conversation_state dry_run never touches the DB", async () => {
+  const tool = findTool("set_conversation_state")!;
+  const result = await tool.execute(unreachableAdmin, { state: "menu", data: { misses: 0 } }, dryRunCtx);
+  assertEquals(result.ok, true);
+  assertEquals(result.dry_run, true);
+});
+
+Deno.test("get_payment_link rejects missing booking_id without touching the DB", async () => {
+  const tool = findTool("get_payment_link")!;
+  const result = await tool.execute(unreachableAdmin, {}, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("suggest_addresses rejects a short query without calling Google", async () => {
+  const tool = findTool("suggest_addresses")!;
+  const result = await tool.execute(unreachableAdmin, { query: "a" }, ctx);
+  assertEquals(result.ok, false);
+  assertEquals(result.error, "invalid_arguments");
+});
+
+Deno.test("suggest_addresses reports places_not_configured when the Maps key is missing", async () => {
+  const prev = Deno.env.get("GOOGLE_MAPS_SERVER_KEY");
+  Deno.env.delete("GOOGLE_MAPS_SERVER_KEY");
+  try {
+    const tool = findTool("suggest_addresses")!;
+    const result = await tool.execute(unreachableAdmin, { query: "Libertador 1500 Martinez" }, ctx);
+    assertEquals(result.ok, false);
+    assertEquals(result.error, "places_not_configured");
+  } finally {
+    if (prev != null) Deno.env.set("GOOGLE_MAPS_SERVER_KEY", prev);
+  }
+});
+
+Deno.test("get_bank_transfer_details reports missing env without touching the DB", async () => {
+  const keys = [
+    "WASHERO_TRANSFER_ALIAS",
+    "WASHERO_TRANSFER_CBU",
+    "WASHERO_TRANSFER_HOLDER",
+    "WASHERO_TRANSFER_BANK",
+  ];
+  const prev = Object.fromEntries(keys.map((k) => [k, Deno.env.get(k)]));
+  for (const k of keys) Deno.env.delete(k);
+  try {
+    const tool = findTool("get_bank_transfer_details")!;
+    const result = await tool.execute(unreachableAdmin, {}, ctx);
+    assertEquals(result.ok, false);
+    assertEquals(result.error, "bank_details_not_configured");
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v != null) Deno.env.set(k, v);
+    }
+  }
+});
+
+Deno.test("get_bank_transfer_details returns alias/CBU when env is set", async () => {
+  Deno.env.set("WASHERO_TRANSFER_ALIAS", "washero.mp");
+  Deno.env.set("WASHERO_TRANSFER_CBU", "0000000000000000000000");
+  Deno.env.set("WASHERO_TRANSFER_HOLDER", "Washero SAS");
+  Deno.env.set("WASHERO_TRANSFER_BANK", "Mercado Pago");
+  const tool = findTool("get_bank_transfer_details")!;
+  const result = await tool.execute(unreachableAdmin, {}, ctx);
+  assertEquals(result.ok, true);
+  assertEquals(result.alias, "washero.mp");
+  assertEquals(result.cbu, "0000000000000000000000");
+  assert(String(result.customer_message).includes("washero.mp"));
+});

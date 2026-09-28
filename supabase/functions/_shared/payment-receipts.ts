@@ -2,16 +2,26 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { pick, normalizePhone } from "./botmaker-phone.ts";
 import { normalizeArgentinaWhatsAppPhone } from "./botmaker-outbound.ts";
+import {
+  capturePaymentReceipt,
+  isReceiptLikeMedia,
+  type BookingMatchResult,
+  type CapturePaymentReceiptInput,
+  type CapturePaymentReceiptResult,
+  type ExistingPaymentReceipt,
+  type InboundReceiptMedia,
+  type PaymentReceiptCapturePorts,
+  type PaymentReceiptInsertError,
+  type PaymentReceiptInsertRow,
+} from "./payment-receipt-capture.ts";
 
 export const PAYMENT_RECEIPTS_BUCKET = "payment-receipts";
-
-export type InboundReceiptMedia = {
-  messageType: string;
-  mediaUrl: string;
-  mimeType: string | null;
-  fileName: string | null;
-  caption: string | null;
-};
+export {
+  isReceiptLikeMedia,
+  PAYMENT_RECEIPT_MAX_BYTES,
+  PAYMENT_RECEIPTS_CAPTURE_BUCKET,
+} from "./payment-receipt-capture.ts";
+export type { CapturePaymentReceiptInput, CapturePaymentReceiptResult, InboundReceiptMedia };
 
 function foldMime(v: string | null | undefined): string {
   return String(v ?? "").trim().toLowerCase();
@@ -46,7 +56,10 @@ export function extractInboundReceiptMedia(payload: Record<string, unknown>): In
   ).toLowerCase();
 
   let messageType = rawType || "text";
-  if (messageType.includes("image") || messageType === "photo" || messageType === "sticker") {
+  if (messageType === "sticker") {
+    return null;
+  }
+  if (messageType.includes("image") || messageType === "photo") {
     messageType = "image";
   } else if (
     messageType.includes("document") ||
@@ -116,24 +129,6 @@ export function extractInboundReceiptMedia(payload: Record<string, unknown>): In
   };
 }
 
-export function isReceiptLikeMedia(
-  messageType: string,
-  mimeType: string | null,
-  fileName: string | null,
-): boolean {
-  const type = messageType.toLowerCase();
-  const mime = foldMime(mimeType);
-  const name = foldMime(fileName);
-
-  if (type === "image" || type === "document") return true;
-  if (mime.startsWith("image/")) return true;
-  if (mime === "application/pdf") return true;
-  if (name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") ||
-    name.endsWith(".png") || name.endsWith(".webp")) {
-    return true;
-  }
-  return false;
-}
 
 function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   const na = normalizeArgentinaWhatsAppPhone(a) ?? normalizePhone(a)?.replace(/\D/g, "") ?? null;
@@ -159,8 +154,8 @@ type BookingMatchRow = {
 export async function matchTransferBookingForReceipt(
   admin: SupabaseClient,
   phone: string | null,
-): Promise<{ bookingId: string | null; receiptStatus: "pending_review" | "unresolved" }> {
-  if (!phone) return { bookingId: null, receiptStatus: "unresolved" };
+): Promise<BookingMatchResult> {
+  if (!phone) return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
 
   const today = todayBuenosAiresIso();
   const { data: rows, error } = await admin
@@ -176,7 +171,7 @@ export async function matchTransferBookingForReceipt(
 
   if (error) {
     console.warn("[payment-receipts] booking match query failed", error);
-    return { bookingId: null, receiptStatus: "unresolved" };
+    return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
   }
 
   const matches = ((rows ?? []) as BookingMatchRow[]).filter((b) =>
@@ -184,31 +179,19 @@ export async function matchTransferBookingForReceipt(
   );
 
   if (matches.length === 0) {
-    return { bookingId: null, receiptStatus: "unresolved" };
+    return { bookingId: null, receiptStatus: "unresolved", eligibleCount: 0 };
   }
 
   if (matches.length === 1) {
-    return { bookingId: matches[0].id, receiptStatus: "pending_review" };
+    return { bookingId: matches[0].id, receiptStatus: "pending_review", eligibleCount: 1 };
   }
 
   const pendingOnly = matches.filter((b) => b.booking_status === "pending");
   if (pendingOnly.length === 1) {
-    return { bookingId: pendingOnly[0].id, receiptStatus: "pending_review" };
+    return { bookingId: pendingOnly[0].id, receiptStatus: "pending_review", eligibleCount: 1 };
   }
 
-  return { bookingId: null, receiptStatus: "unresolved" };
-}
-
-function safeFileName(name: string | null, mimeType: string | null): string {
-  const base = (name ?? "").trim() || "comprobante";
-  const cleaned = base.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
-  if (cleaned.includes(".")) return cleaned;
-  const mime = foldMime(mimeType);
-  if (mime === "application/pdf") return `${cleaned}.pdf`;
-  if (mime === "image/png") return `${cleaned}.png`;
-  if (mime === "image/webp") return `${cleaned}.webp`;
-  if (mime.startsWith("image/")) return `${cleaned}.jpg`;
-  return `${cleaned}.bin`;
+  return { bookingId: null, receiptStatus: "unresolved", eligibleCount: matches.length };
 }
 
 export async function ensurePaymentReceiptsBucket(admin: SupabaseClient): Promise<void> {
@@ -259,90 +242,104 @@ async function downloadReceiptMedia(mediaUrl: string): Promise<
   }
 }
 
-export type CapturePaymentReceiptInput = {
-  phone: string | null;
-  customerPhoneNormalized?: string | null;
-  botmakerMessageId?: string | null;
-  media: InboundReceiptMedia;
-  rawPayload: Record<string, unknown>;
-};
+function asExistingReceipt(row: {
+  id?: unknown;
+  status?: unknown;
+  booking_id?: unknown;
+} | null | undefined): ExistingPaymentReceipt | null {
+  if (!row?.id) return null;
+  return {
+    id: String(row.id),
+    status: row.status == null ? null : String(row.status),
+    booking_id: row.booking_id == null ? null : String(row.booking_id),
+  };
+}
 
-export async function capturePaymentReceiptFromBotmaker(
-  admin: SupabaseClient,
-  input: CapturePaymentReceiptInput,
-): Promise<{ ok: boolean; receiptId?: string; error?: string }> {
-  if (input.botmakerMessageId) {
-    const { data: dup } = await admin
-      .from("payment_receipts")
-      .select("id")
-      .eq("botmaker_message_id", input.botmakerMessageId)
-      .maybeSingle();
-    if (dup?.id) return { ok: true, receiptId: dup.id, error: "duplicate_message" };
-  }
-
-  const phone = input.customerPhoneNormalized ??
-    normalizeArgentinaWhatsAppPhone(input.phone) ??
-    normalizePhone(input.phone);
-
-  const { bookingId, receiptStatus } = await matchTransferBookingForReceipt(admin, phone);
-  const folder = bookingId ?? "unresolved";
-  const timestamp = Date.now();
-  const fileName = safeFileName(input.media.fileName, input.media.mimeType);
-  const storagePath = `${folder}/${timestamp}-${fileName}`;
-
-  await ensurePaymentReceiptsBucket(admin);
-
-  let mimeType = input.media.mimeType;
-  let fileSize: number | null = null;
-  let uploadOk = false;
-
-  const downloaded = await downloadReceiptMedia(input.media.mediaUrl);
-  if (downloaded) {
-    mimeType = mimeType || downloaded.contentType;
-    fileSize = downloaded.bytes.byteLength;
-    const { error: upErr } = await admin.storage
-      .from(PAYMENT_RECEIPTS_BUCKET)
-      .upload(storagePath, downloaded.bytes, {
-        contentType: mimeType || downloaded.contentType,
+export function makePaymentReceiptCapturePorts(admin: SupabaseClient): PaymentReceiptCapturePorts {
+  return {
+    async findDuplicateByExternalMessageId(externalMessageId) {
+      const { data: dup } = await admin
+        .from("payment_receipts")
+        .select("id, status, booking_id")
+        .eq("external_message_id", externalMessageId)
+        .maybeSingle();
+      return asExistingReceipt(dup);
+    },
+    async findDuplicateByBotmakerMessageId(botmakerMessageId) {
+      const { data: dup } = await admin
+        .from("payment_receipts")
+        .select("id, status, booking_id")
+        .eq("botmaker_message_id", botmakerMessageId)
+        .maybeSingle();
+      return asExistingReceipt(dup);
+    },
+    matchBooking: (phone) => matchTransferBookingForReceipt(admin, phone),
+    ensureBucket: () => ensurePaymentReceiptsBucket(admin),
+    async uploadObject(path, bytes, contentType) {
+      const { error } = await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).upload(path, bytes, {
+        contentType,
         upsert: false,
       });
-    if (upErr) {
-      console.error("[payment-receipts] storage upload failed", upErr);
-    } else {
-      uploadOk = true;
-    }
-  }
-
-  const { data: inserted, error: insErr } = await admin
-    .from("payment_receipts")
-    .insert({
-      booking_id: bookingId,
-      customer_phone: phone,
-      source: "whatsapp",
-      botmaker_message_id: input.botmakerMessageId ?? null,
-      media_url: input.media.mediaUrl,
-      storage_bucket: PAYMENT_RECEIPTS_BUCKET,
-      storage_path: uploadOk ? storagePath : null,
-      mime_type: mimeType,
-      file_name: fileName,
-      file_size: fileSize,
-      status: receiptStatus,
-      raw_payload: {
-        capture: {
-          message_type: input.media.messageType,
-          upload_ok: uploadOk,
-          booking_match: bookingId ? "single" : receiptStatus,
+      return { error: error ? { message: error.message } : null };
+    },
+    async insertReceipt(row: PaymentReceiptInsertRow) {
+      // Insert without select/single so row creation success is unambiguous.
+      const { error } = await admin.from("payment_receipts").insert(row);
+      if (!error) return { error: null };
+      const err = error as PaymentReceiptInsertError;
+      return {
+        error: {
+          code: err.code,
+          message: err.message,
+          details: err.details,
+          hint: err.hint,
         },
-        botmaker: input.rawPayload,
-      },
-    })
-    .select("id")
-    .maybeSingle();
+      };
+    },
+    async removeExact(exactPaths) {
+      return await admin.storage.from(PAYMENT_RECEIPTS_BUCKET).remove(exactPaths);
+    },
+    now: () => Date.now(),
+    createId: () => crypto.randomUUID(),
+    logSafe(fields) {
+      console.error("[payment-receipts]", JSON.stringify(fields));
+    },
+  };
+}
 
-  if (insErr || !inserted?.id) {
-    console.error("[payment-receipts] insert failed", insErr);
-    return { ok: false, error: "insert_failed" };
-  }
-
-  return { ok: true, receiptId: inserted.id };
+/**
+ * Botmaker transport adapter. Preserves zero-match persistence (unresolved row)
+ * and insert-without-object fallback when Botmaker media cannot be downloaded.
+ */
+export async function capturePaymentReceiptFromBotmaker(
+  admin: SupabaseClient,
+  input: {
+    phone: string | null;
+    customerPhoneNormalized?: string | null;
+    botmakerMessageId?: string | null;
+    media: InboundReceiptMedia;
+    rawPayload: Record<string, unknown>;
+  },
+): Promise<CapturePaymentReceiptResult> {
+  const customerPhoneNormalized =
+    input.customerPhoneNormalized ??
+    normalizeArgentinaWhatsAppPhone(input.phone) ??
+    normalizePhone(input.phone);
+  const mediaUrl = input.media.mediaUrl;
+  return capturePaymentReceipt(makePaymentReceiptCapturePorts(admin), {
+    phone: input.phone,
+    customerPhoneNormalized,
+    botmakerMessageId: input.botmakerMessageId ?? null,
+    externalMessageId: null,
+    media: input.media,
+    rawPayload: input.rawPayload,
+    sourceContext: { transport: "botmaker" },
+    persistZeroMatch: true,
+    mediaFailurePolicy: "insert_without_object",
+    loadMediaBytes: async () => {
+      const downloaded = await downloadReceiptMedia(mediaUrl);
+      if (!downloaded) return { ok: false, reason: "download_failed" };
+      return { ok: true, bytes: downloaded.bytes, contentType: downloaded.contentType };
+    },
+  });
 }
