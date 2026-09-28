@@ -15,9 +15,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Booking } from "@/components/admin/bookings";
-import { notifyOperatorAssignmentPush } from "@/lib/web-push";
-
-type StaffRow = { id: string; email: string | null; role: string };
+import { cn } from "@/lib/utils";
+import {
+  ADMIN_OPERATOR_STAFF_QUERY_KEY,
+  fetchAdminOperatorStaffList,
+  notifyAssignedOperator,
+  saveBookingOperatorAssignment,
+} from "@/lib/admin-operator-assignment";
 
 const ASSIGNMENT_PUSH_DEBUG = import.meta.env.DEV;
 
@@ -74,41 +78,32 @@ function toastAssignmentPushError(message: string) {
   toast.warning("Operador asignado, pero no pudimos enviar la notificación.");
 }
 
-export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
+export function OperatorAssignmentFields({
+  booking,
+  variant = "full",
+  onSaved,
+}: {
+  booking: Booking;
+  variant?: "full" | "compact";
+  onSaved?: () => void;
+}) {
   const qc = useQueryClient();
   const [operatorId, setOperatorId] = useState(booking.assigned_operator_id ?? "");
   const [vehicleLabel, setVehicleLabel] = useState(booking.assigned_vehicle_label ?? "");
 
   const staffQuery = useQuery({
-    queryKey: ["admin", "operator-staff"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("admin_users")
-        .select("id, email, role")
-        .eq("active", true)
-        .in("role", ["owner", "admin", "operator"])
-        .order("email");
-      if (error) throw error;
-      return (data ?? []) as StaffRow[];
-    },
+    queryKey: ADMIN_OPERATOR_STAFF_QUERY_KEY,
+    queryFn: fetchAdminOperatorStaffList,
   });
 
   const save = useMutation({
     mutationFn: async () => {
-      const previousOperatorId = booking.assigned_operator_id ?? null;
-      const newOperatorId = operatorId || null;
-
-      const { error } = await supabase
-        .from("bookings")
-        .update({
-          assigned_operator_id: newOperatorId,
-          assigned_vehicle_label: vehicleLabel.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", booking.id);
-      if (error) throw error;
-
-      return { previousOperatorId, newOperatorId };
+      return saveBookingOperatorAssignment({
+        bookingId: booking.id,
+        previousOperatorId: booking.assigned_operator_id ?? null,
+        operatorId: operatorId || null,
+        vehicleLabel: vehicleLabel.trim() || null,
+      });
     },
     onSuccess: async ({ previousOperatorId, newOperatorId }) => {
       qc.invalidateQueries({ queryKey: ["admin"] });
@@ -127,17 +122,19 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
       if (!operatorChanged) {
         logAssignmentPush("skipped", { reason: "unchanged" });
         toast.success("Asignación guardada.");
+        onSaved?.();
         return;
       }
 
       if (!newOperatorId) {
         logAssignmentPush("skipped", { reason: "removed_assignment" });
         toast.success("Asignación guardada.");
+        onSaved?.();
         return;
       }
 
       try {
-        const result = await notifyOperatorAssignmentPush(booking.id, newOperatorId);
+        const result = await notifyAssignedOperator(booking.id, newOperatorId);
         logAssignmentPush("result", {
           bookingId: booking.id,
           operatorId: newOperatorId,
@@ -151,6 +148,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
         logAssignmentPush("error", { bookingId: booking.id, operatorId: newOperatorId, message: msg });
         toastAssignmentPushError(msg);
       }
+      onSaved?.();
     },
     onError: (e: Error) => toast.error(e.message || "No pudimos guardar la asignación."),
   });
@@ -161,7 +159,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
       if (!targetOperatorId) {
         throw new Error("no_operator");
       }
-      return notifyOperatorAssignmentPush(booking.id, targetOperatorId);
+      return notifyAssignedOperator(booking.id, targetOperatorId);
     },
     onSuccess: (result) => {
       logAssignmentPush("manual_result", {
@@ -188,6 +186,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
 
   const logsQuery = useQuery({
     queryKey: ["admin", "booking-operator-logs", booking.id],
+    enabled: variant === "full",
     queryFn: async () => {
       const { data, error } = await supabase
         .from("communication_logs")
@@ -206,13 +205,17 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
 
   const assignedOperatorId = operatorId || booking.assigned_operator_id || "";
 
+  const compact = variant === "compact";
+
   return (
-    <div className="space-y-2 border-t pt-3">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <UserCog className="h-3.5 w-3.5" />
-        Operador
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2">
+    <div className={cn("space-y-2", !compact && "border-t pt-3")}>
+      {!compact && (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <UserCog className="h-3.5 w-3.5" />
+          Operador
+        </p>
+      )}
+      <div className={cn("grid gap-2", compact ? "grid-cols-1" : "sm:grid-cols-2")}>
         <div className="space-y-1">
           <Label className="text-xs">Asignar a</Label>
           <Select
@@ -227,7 +230,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
               <SelectItem value="__none__">Sin asignar (todos los operadores)</SelectItem>
               {(staffQuery.data ?? []).map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.email ?? s.id.slice(0, 8)} ({s.role})
+                  {s.email ?? (compact ? "Operador" : s.id.slice(0, 8))} ({s.role})
                 </SelectItem>
               ))}
             </SelectContent>
@@ -243,7 +246,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
           />
         </div>
       </div>
-      {booking.operator_notes && (
+      {!compact && booking.operator_notes && (
         <p className="text-xs text-muted-foreground whitespace-pre-wrap">
           Notas operador: {booking.operator_notes}
         </p>
@@ -258,34 +261,36 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
         {save.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
         Guardar asignación
       </Button>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={
-          notifyOperator.isPending || dirty || !assignedOperatorId
-        }
-        onClick={() => notifyOperator.mutate()}
-      >
-        {notifyOperator.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
-        Notificar operador
-      </Button>
-      <div className="rounded-md border bg-muted/30 p-2">
-        <p className="mb-1 text-xs font-medium text-muted-foreground">Logs operativos</p>
-        {logsQuery.isLoading ? (
-          <p className="text-xs text-muted-foreground">Cargando...</p>
-        ) : logsQuery.data && logsQuery.data.length > 0 ? (
-          <div className="space-y-1">
-            {logsQuery.data.map((log) => (
-              <p key={log.id} className="text-xs text-muted-foreground">
-                {new Date(log.created_at).toLocaleString("es-AR")} · {log.channel} · {log.message_text ?? "—"}
-              </p>
-            ))}
+      {!compact && (
+        <>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={notifyOperator.isPending || dirty || !assignedOperatorId}
+            onClick={() => notifyOperator.mutate()}
+          >
+            {notifyOperator.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+            Notificar operador
+          </Button>
+          <div className="rounded-md border bg-muted/30 p-2">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Logs operativos</p>
+            {logsQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground">Cargando...</p>
+            ) : logsQuery.data && logsQuery.data.length > 0 ? (
+              <div className="space-y-1">
+                {logsQuery.data.map((log) => (
+                  <p key={log.id} className="text-xs text-muted-foreground">
+                    {new Date(log.created_at).toLocaleString("es-AR")} · {log.channel} · {log.message_text ?? "—"}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Sin logs todavía.</p>
+            )}
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">Sin logs todavía.</p>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }
