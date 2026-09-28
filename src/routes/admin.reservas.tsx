@@ -8,11 +8,16 @@ const reservasSearchSchema = z.object({
 export const Route = createFileRoute("/admin/reservas")({
   validateSearch: reservasSearchSchema,
   beforeLoad: ({ search }) => {
+    if (search.booking) {
+      throw redirect({
+        to: "/admin/reservas/$bookingId",
+        params: { bookingId: search.booking },
+      });
+    }
     throw redirect({
       to: "/admin",
       search: {
         view: "list" as const,
-        booking: search.booking,
       },
     });
   },

@@ -71,12 +71,14 @@ function InvoiceDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                const bookingId = inv.booking_id;
+                if (!bookingId) return;
                 navigate({
-                  to: "/admin/reservas",
-                  search: { booking: inv.booking_id! },
-                })
-              }
+                  to: "/admin/reservas/$bookingId",
+                  params: { bookingId },
+                });
+              }}
               className="no-print"
             >
               <ClipboardList className="mr-1 h-4 w-4" /> Ver reserva

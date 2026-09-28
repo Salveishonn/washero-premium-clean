@@ -47,6 +47,7 @@ import { Route as OperatorSemanaRouteImport } from './routes/operator.semana'
 import { Route as PublicComprobantePublicTokenRouteImport } from './routes/_public.comprobante.$publicToken'
 import { Route as PublicQSlugRouteImport } from './routes/_public.q.$slug'
 import { Route as AdminFacturasInvoiceIdRouteImport } from './routes/admin.facturas_.$invoiceId'
+import { Route as AdminReservasBookingIdRouteImport } from './routes/admin.reservas_.$bookingId'
 import { Route as OperatorReservaBookingIdRouteImport } from './routes/operator.reserva.$bookingId'
 
 const PublicRoute = PublicRouteImport.update({
@@ -239,6 +240,11 @@ const AdminFacturasInvoiceIdRoute = AdminFacturasInvoiceIdRouteImport.update({
   path: '/facturas/$invoiceId',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminReservasBookingIdRoute = AdminReservasBookingIdRouteImport.update({
+  id: '/reservas_/$bookingId',
+  path: '/reservas/$bookingId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const OperatorReservaBookingIdRoute =
   OperatorReservaBookingIdRouteImport.update({
     id: '/reserva/$bookingId',
@@ -284,6 +290,7 @@ export interface FileRoutesByFullPath {
   '/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/q/$slug': typeof PublicQSlugRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
+  '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRoutesByTo {
@@ -322,6 +329,7 @@ export interface FileRoutesByTo {
   '/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/q/$slug': typeof PublicQSlugRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
+  '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRoutesById {
@@ -364,6 +372,7 @@ export interface FileRoutesById {
   '/_public/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/_public/q/$slug': typeof PublicQSlugRoute
   '/admin/facturas_/$invoiceId': typeof AdminFacturasInvoiceIdRoute
+  '/admin/reservas_/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRouteTypes {
@@ -406,6 +415,7 @@ export interface FileRouteTypes {
     | '/comprobante/$publicToken'
     | '/q/$slug'
     | '/admin/facturas/$invoiceId'
+    | '/admin/reservas/$bookingId'
     | '/operator/reserva/$bookingId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -444,6 +454,7 @@ export interface FileRouteTypes {
     | '/comprobante/$publicToken'
     | '/q/$slug'
     | '/admin/facturas/$invoiceId'
+    | '/admin/reservas/$bookingId'
     | '/operator/reserva/$bookingId'
   id:
     | '__root__'
@@ -485,6 +496,7 @@ export interface FileRouteTypes {
     | '/_public/comprobante/$publicToken'
     | '/_public/q/$slug'
     | '/admin/facturas_/$invoiceId'
+    | '/admin/reservas_/$bookingId'
     | '/operator/reserva/$bookingId'
   fileRoutesById: FileRoutesById
 }
@@ -762,6 +774,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminFacturasInvoiceIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/reservas_/$bookingId': {
+      id: '/admin/reservas_/$bookingId'
+      path: '/reservas/$bookingId'
+      fullPath: '/admin/reservas/$bookingId'
+      preLoaderRoute: typeof AdminReservasBookingIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/operator/reserva/$bookingId': {
       id: '/operator/reserva/$bookingId'
       path: '/reserva/$bookingId'
@@ -816,6 +835,7 @@ interface AdminRouteChildren {
   AdminWhatsappConfigRoute: typeof AdminWhatsappConfigRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminFacturasInvoiceIdRoute: typeof AdminFacturasInvoiceIdRoute
+  AdminReservasBookingIdRoute: typeof AdminReservasBookingIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -841,6 +861,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminWhatsappConfigRoute: AdminWhatsappConfigRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminFacturasInvoiceIdRoute: AdminFacturasInvoiceIdRoute,
+  AdminReservasBookingIdRoute: AdminReservasBookingIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
@@ -879,3 +900,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

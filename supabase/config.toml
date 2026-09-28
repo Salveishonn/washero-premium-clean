@@ -95,3 +95,6 @@ verify_jwt = true
 
 [functions.admin-delete-booking]
 verify_jwt = true
+
+[functions.admin-booking-proofs]
+verify_jwt = true

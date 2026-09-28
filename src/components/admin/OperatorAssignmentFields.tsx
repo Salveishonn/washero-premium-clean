@@ -111,8 +111,7 @@ export function OperatorAssignmentFields({ booking }: { booking: Booking }) {
       return { previousOperatorId, newOperatorId };
     },
     onSuccess: async ({ previousOperatorId, newOperatorId }) => {
-      qc.invalidateQueries({ queryKey: ["admin", "bookings"] });
-      qc.invalidateQueries({ queryKey: ["admin", "calendar"] });
+      qc.invalidateQueries({ queryKey: ["admin"] });
       booking.assigned_operator_id = newOperatorId;
       booking.assigned_vehicle_label = vehicleLabel.trim() || null;
 

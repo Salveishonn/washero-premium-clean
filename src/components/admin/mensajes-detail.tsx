@@ -597,7 +597,7 @@ function LinkedBookingCard({
       </div>
       <div className="flex flex-wrap gap-2 pt-1">
         <Button asChild size="sm" variant="outline">
-          <Link to="/admin/reservas" search={{ booking: bookingId }}>
+          <Link to="/admin/reservas/$bookingId" params={{ bookingId }}>
             <ClipboardList className="mr-1 h-3 w-3" /> Ver en Reservas
           </Link>
         </Button>

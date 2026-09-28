@@ -287,7 +287,7 @@ function WhatsappAgentPage() {
                     <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status]}</Badge>
                     {c.booking_id && (
                       <Button asChild size="sm" variant="ghost">
-                        <Link to="/admin/reservas" search={{ booking: c.booking_id }}>
+                        <Link to="/admin/reservas/$bookingId" params={{ bookingId: c.booking_id }}>
                           Ver reserva
                         </Link>
                       </Button>

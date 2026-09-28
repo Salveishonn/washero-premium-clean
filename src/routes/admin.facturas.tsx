@@ -246,8 +246,8 @@ function InvoiceRowActions({
       return;
     }
     navigate({
-      to: "/admin/reservas",
-      search: { booking: inv.booking_id },
+      to: "/admin/reservas/$bookingId",
+      params: { bookingId: inv.booking_id },
     });
   };
 
