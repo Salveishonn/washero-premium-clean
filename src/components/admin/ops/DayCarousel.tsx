@@ -41,7 +41,7 @@ export function DayCarousel({ selectedIso, todayIso, counts, onSelect, span = 15
   }, [api, days, selectedIso]);
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex min-w-0 w-full items-center gap-1">
       <Button
         type="button"
         variant="ghost"

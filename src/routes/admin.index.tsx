@@ -314,7 +314,7 @@ function AdminOpsHub() {
   const summaryTitle = hubSelectedDayTitle(selectedDate, today);
 
   return (
-    <div className="space-y-5 overflow-x-hidden">
+    <div className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Operación</h1>
