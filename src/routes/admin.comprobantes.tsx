@@ -326,8 +326,8 @@ function ReceiptRowActions({
         {row.booking_id ? (
           <div className="space-y-1 text-sm">
             <Link
-              to="/admin/reservas"
-              search={{ booking: row.booking_id }}
+              to="/admin/reservas/$bookingId"
+              params={{ bookingId: row.booking_id }}
               className="underline-offset-2 hover:underline"
             >
               Ver reserva

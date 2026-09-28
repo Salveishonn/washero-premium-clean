@@ -1,9 +1,35 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { classifyAdminHardDeleteAuth } from "./booking-hard-delete.ts";
 
 export type AdminHardDeleteGate =
   | { ok: true; adminUserId: string; role: "owner" | "admin"; userId: string }
   | { ok: false; code: "unauthorized" | "forbidden" };
+
+type AdminStaffRow = {
+  id: string;
+  role: string | null;
+  active: boolean | null;
+};
+
+/** Active owner/admin JWT gate. No delete or financial behavior. */
+export function classifyActiveAdminAuth(input: {
+  authHeader: string | null;
+  userId: string | null;
+  staff: AdminStaffRow | null;
+}):
+  | { ok: true; adminUserId: string; role: "owner" | "admin" }
+  | { ok: false; code: "unauthorized" | "forbidden" } {
+  if (!input.authHeader || !input.userId) {
+    return { ok: false, code: "unauthorized" };
+  }
+  if (!input.staff?.id || !input.staff.active) {
+    return { ok: false, code: "forbidden" };
+  }
+  const role = input.staff.role ?? "";
+  if (role !== "owner" && role !== "admin") {
+    return { ok: false, code: "forbidden" };
+  }
+  return { ok: true, adminUserId: input.staff.id, role };
+}
 
 export async function getAdminHardDeleteGate(input: {
   authHeader: string | null;
@@ -28,7 +54,7 @@ export async function getAdminHardDeleteGate(input: {
     .eq("user_id", userId)
     .maybeSingle();
 
-  const classified = classifyAdminHardDeleteAuth({
+  const classified = classifyActiveAdminAuth({
     authHeader,
     userId,
     staff: row

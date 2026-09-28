@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -62,7 +62,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  BookingDialogs,
   fmtDate,
   fmtTime,
   type Booking,
@@ -121,10 +120,6 @@ function ClientesPage() {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<CustomerRow | null>(null);
   const [deleteBookingsToo, setDeleteBookingsToo] = useState(false);
-
-  // Booking dialog state (for "Ver reserva")
-  const [bookingSelected, setBookingSelected] = useState<Booking | null>(null);
-  const [bookingEditing, setBookingEditing] = useState<Booking | null>(null);
 
   const customersQuery = useQuery({
     queryKey: ["admin", "customers"],
@@ -505,7 +500,6 @@ function ClientesPage() {
                 setSelected(null);
               }}
               onMutate={refresh}
-              onOpenBooking={(b) => setBookingSelected(b)}
               onDelete={() => {
                 setDeleteBookingsToo(false);
                 setDeleting(selected);
@@ -548,17 +542,6 @@ function ClientesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Booking dialogs (for "Ver reserva") */}
-      <BookingDialogs
-        selected={bookingSelected}
-        setSelected={setBookingSelected}
-        editing={bookingEditing}
-        setEditing={setBookingEditing}
-        creating={false}
-        setCreating={() => {}}
-        onMutate={refresh}
-      />
-
       <DeleteCustomerDialog
         customer={deleting}
         deleteBookingsToo={deleteBookingsToo}
@@ -587,13 +570,11 @@ function CustomerDetail({
   customer,
   onEdit,
   onMutate,
-  onOpenBooking,
   onDelete,
 }: {
   customer: Customer;
   onEdit: () => void;
   onMutate: () => void;
-  onOpenBooking: (b: Booking) => void;
   onDelete: () => void;
 }) {
   const qc = useQueryClient();
@@ -733,8 +714,10 @@ function CustomerDetail({
                     <BookingSourceBadge value={b.booking_source} />
                   </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => onOpenBooking(b)}>
-                  Ver reserva
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/admin/reservas/$bookingId" params={{ bookingId: b.id }}>
+                    Ver reserva
+                  </Link>
                 </Button>
               </div>
             ))}

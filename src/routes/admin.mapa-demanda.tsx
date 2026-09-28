@@ -476,7 +476,7 @@ function MapaDemandaPage() {
             zoneCounts={zoneCounts}
             selectedZoneId={mapZoneHighlight}
             onZoneSelect={applyZoneFilter}
-            bookingDetailPath={(id) => `/admin/reservas?booking=${id}`}
+            bookingDetailPath={(id) => `/admin/reservas/${id}`}
           />
         )}
         {!mapAvailable ? (
@@ -788,7 +788,7 @@ function BookingTableRow({ booking: b }: { booking: DemandBooking }) {
       <TableCell className="text-right font-mono text-sm">{formatARS(b.price)}</TableCell>
       <TableCell>
         <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/reservas" search={{ booking: b.id }}>
+          <Link to="/admin/reservas/$bookingId" params={{ bookingId: b.id }}>
             Ver <ExternalLink className="ml-1 h-3 w-3" />
           </Link>
         </Button>
@@ -819,7 +819,7 @@ function BookingMobileCard({ booking: b }: { booking: DemandBooking }) {
         <BookingSourceBadge value={b.booking_source} />
       </div>
       <Button asChild className="mt-3 w-full" variant="outline" size="sm">
-        <Link to="/admin/reservas" search={{ booking: b.id }}>
+        <Link to="/admin/reservas/$bookingId" params={{ bookingId: b.id }}>
           Ver reserva
         </Link>
       </Button>

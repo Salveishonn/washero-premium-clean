@@ -1,29 +1,10 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Loader2,
-  Phone,
-  MapPin,
-  Calendar as CalIcon,
-  Clock,
-  Car,
-  StickyNote,
-  CheckCircle2,
-  PlayCircle,
-  Flag,
-  XCircle,
-  AlertTriangle,
-  Pencil,
-  FileText,
-  Printer,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { parseArgentinaMobile } from "@/lib/phone";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -55,11 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  BOOKING_STATUSES,
   PAYMENT_STATUSES,
-  BookingStatusBadge,
-  PaymentStatusBadge,
-  BookingSourceBadge,
   bookingStatusLabels,
   paymentStatusLabels,
   formatPrice,
@@ -69,10 +46,12 @@ import {
   ADMIN_VEHICLE_TYPES,
   invokeCreateAdminBooking,
 } from "@/lib/admin-booking";
-import { fetchInvoiceForBooking, fmtInvoiceDate, generateInvoiceForBooking, deliverInvoice } from "@/lib/invoices";
-import { OperatorAssignmentFields } from "@/components/admin/OperatorAssignmentFields";
-import { BookingWhatsAppActions } from "@/components/admin/BookingWhatsAppActions";
-import { deleteBooking } from "@/lib/admin-delete";
+import {
+  ADMIN_COMMERCIAL_BOOKING_STATUSES,
+  isAdminCommercialBookingStatus,
+  isAdminOperationalBypassStatus,
+} from "@/lib/admin-booking-status";
+import { DELETE_BOOKING_CONFIRM_COPY } from "@/lib/admin-booking-detail";
 
 // ===========================================================================
 // Types
@@ -365,6 +344,12 @@ export function useQuickBookingStatus(opts?: { onSuccess?: () => void }) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { id: string; booking_status: string }) => {
+      if (isAdminOperationalBypassStatus(input.booking_status)) {
+        throw new Error("El estado operativo se actualiza desde la app del operador.");
+      }
+      if (!isAdminCommercialBookingStatus(input.booking_status)) {
+        throw new Error("Estado comercial no válido.");
+      }
       const { error } = await supabase
         .from("bookings")
         .update({ booking_status: input.booking_status })
@@ -375,485 +360,11 @@ export function useQuickBookingStatus(opts?: { onSuccess?: () => void }) {
       toast.success(
         `Estado actualizado a ${bookingStatusLabels[v.booking_status] ?? v.booking_status}`,
       );
-      qc.invalidateQueries({ queryKey: ["admin", "bookings"] });
-      qc.invalidateQueries({ queryKey: ["admin", "metrics"] });
-      qc.invalidateQueries({ queryKey: ["admin", "calendar"] });
+      qc.invalidateQueries({ queryKey: ["admin"] });
       opts?.onSuccess?.();
     },
-    onError: () => toast.error("No pudimos actualizar la reserva."),
+    onError: (e: Error) => toast.error(e.message || "No pudimos actualizar la reserva."),
   });
-}
-
-// ===========================================================================
-// Detail (used inside <Dialog>)
-// ===========================================================================
-
-type LatestPayment = {
-  id: string;
-  provider: string;
-  provider_payment_id: string | null;
-  status: string;
-  amount: number;
-  updated_at: string;
-  raw_payload: Record<string, unknown> | null;
-};
-
-function useLatestPayment(bookingId: string) {
-  return useQuery({
-    queryKey: ["admin", "booking-payment", bookingId],
-    enabled: !!bookingId,
-    queryFn: async (): Promise<LatestPayment | null> => {
-      const { data } = await supabase
-        .from("payments")
-        .select("id,provider,provider_payment_id,status,amount,updated_at,raw_payload")
-        .eq("booking_id", bookingId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return (data as LatestPayment | null) ?? null;
-    },
-  });
-}
-
-function useInvoiceForBooking(bookingId: string) {
-  return useQuery({
-    queryKey: ["admin", "booking-invoice", bookingId],
-    enabled: !!bookingId,
-    queryFn: () => fetchInvoiceForBooking(bookingId),
-  });
-}
-
-const MANUAL_PAYMENT_STATUSES = [
-  { value: "paid", label: "Marcar como pagado" },
-  { value: "pending", label: "Marcar como pendiente" },
-  { value: "failed", label: "Marcar como fallido" },
-  { value: "refunded", label: "Marcar como reembolsado" },
-] as const;
-
-export function BookingDetail({
-  booking,
-  onEdit,
-  onCancel,
-  onDelete,
-  onQuickStatus,
-  busy,
-}: {
-  booking: Booking;
-  onEdit: () => void;
-  onCancel: () => void;
-  onDelete: () => void;
-  onQuickStatus: (s: string) => void;
-  busy: boolean;
-}) {
-  const qc = useQueryClient();
-  const latestPayment = useLatestPayment(booking.id);
-  const invoiceQuery = useInvoiceForBooking(booking.id);
-  const [pendingManual, setPendingManual] = useState<string | null>(null);
-  const [showRaw, setShowRaw] = useState(false);
-
-  const invalidatePaymentQueries = () => {
-    qc.invalidateQueries({ queryKey: ["admin", "bookings"] });
-    qc.invalidateQueries({ queryKey: ["admin", "calendar"] });
-    qc.invalidateQueries({ queryKey: ["admin", "metrics"] });
-    qc.invalidateQueries({ queryKey: ["admin", "booking-payment", booking.id] });
-    qc.invalidateQueries({ queryKey: ["admin", "booking-invoice", booking.id] });
-    qc.invalidateQueries({ queryKey: ["admin", "mp-payment-counts"] });
-    qc.invalidateQueries({ queryKey: ["admin", "mp-latest-payment"] });
-    qc.invalidateQueries({ queryKey: ["facturas"] });
-  };
-
-  const manualPay = useMutation({
-    mutationFn: async (newStatus: string) => {
-      const previous = booking.payment_status;
-      const { error: updErr } = await supabase
-        .from("bookings")
-        .update({ payment_status: newStatus, updated_at: new Date().toISOString() })
-        .eq("id", booking.id);
-      if (updErr) throw updErr;
-      const { error: payErr } = await supabase.from("payments").insert({
-        booking_id: booking.id,
-        provider: "manual",
-        amount: booking.price,
-        status: newStatus,
-        raw_payload: {
-          reason: "manual_admin_update",
-          previous_payment_status: previous,
-          new_payment_status: newStatus,
-        },
-      });
-      if (payErr) throw payErr;
-      await supabase.from("communication_logs").insert({
-        booking_id: booking.id,
-        provider: "manual",
-        channel: "admin",
-        direction: "internal",
-        message_text: `Pago actualizado manualmente por admin: ${newStatus}`,
-      });
-
-      let invoiceCreated: boolean | null = null;
-      if (newStatus === "paid") {
-        const inv = await generateInvoiceForBooking(booking.id);
-        if (!inv.ok) throw new Error(inv.error);
-        invoiceCreated = inv.created;
-      }
-      return { newStatus, invoiceCreated };
-    },
-    onSuccess: ({ newStatus, invoiceCreated }) => {
-      if (newStatus === "paid") {
-        toast.success(
-          invoiceCreated
-            ? "Pago marcado como pagado. Factura generada."
-            : "Pago actualizado. La factura ya existía.",
-        );
-        void deliverInvoice(booking.id).then((r) => {
-          if (!r.ok && r.skipped !== "already_delivered") {
-            console.warn("[admin] invoice delivery", r.error);
-          }
-        });
-      } else {
-        toast.success(`Pago marcado como ${paymentStatusLabels[newStatus] ?? newStatus}.`);
-      }
-      invalidatePaymentQueries();
-      booking.payment_status = newStatus;
-    },
-    onError: (e: Error) => toast.error(e.message || "No pudimos actualizar el estado del pago."),
-  });
-
-  const generateInvoice = useMutation({
-    mutationFn: async () => {
-      const inv = await generateInvoiceForBooking(booking.id);
-      if (!inv.ok) throw new Error(inv.error);
-      return inv;
-    },
-    onSuccess: (inv) => {
-      toast.success(inv.created ? "Factura generada." : "La factura ya existía para esta reserva.");
-      invalidatePaymentQueries();
-      if (booking.payment_status === "paid") {
-        void deliverInvoice(booking.id);
-      }
-    },
-    onError: (e: Error) => toast.error(e.message || "No pudimos generar la factura."),
-  });
-
-  const lp = latestPayment.data;
-  const rawStatus =
-    lp?.raw_payload && typeof lp.raw_payload === "object"
-      ? (((lp.raw_payload as Record<string, unknown>).status as string | undefined) ?? null)
-      : null;
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          {booking.customer_name}
-          <BookingStatusBadge value={booking.booking_status} />
-        </DialogTitle>
-        <DialogDescription className="flex flex-wrap items-center gap-2">
-          <PaymentStatusBadge value={booking.payment_status} />
-          <BookingSourceBadge value={booking.booking_source} />
-          {(booking.booking_source === "admin_subscription" ||
-            booking.booking_source === "subscription" ||
-            booking.customer_subscription_id) && (
-            <Badge
-              variant="secondary"
-              className="bg-violet-100 text-violet-900 dark:bg-violet-500/15 dark:text-violet-300"
-            >
-              Suscripción
-            </Badge>
-          )}
-          <span className="text-xs">{booking.payment_method}</span>
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="grid gap-4 py-2 text-sm sm:grid-cols-2">
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Cliente</p>
-          <p className="flex items-center gap-1.5">
-            <Phone className="h-3.5 w-3.5" /> {booking.customer_phone}
-          </p>
-          {booking.customer_email && <p className="text-xs">{booking.customer_email}</p>}
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Servicio</p>
-          <p className="flex items-center gap-1.5">
-            <Car className="h-3.5 w-3.5" /> {booking.service_name} · {booking.vehicle_type}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {booking.duration_minutes} min · {formatPrice(booking.price)}
-          </p>
-          {Array.isArray(booking.selected_extras) && booking.selected_extras.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              Extras: {booking.selected_extras.join(", ")}
-              {booking.extras_total != null && booking.extras_total > 0
-                ? ` (+${formatPrice(booking.extras_total)})`
-                : ""}
-            </p>
-          )}
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Ubicación</p>
-          <p className="flex items-start gap-1.5">
-            <MapPin className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-            <span>
-              {booking.address}, {booking.neighborhood}
-            </span>
-          </p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Programación</p>
-          <p className="flex items-center gap-1.5">
-            <CalIcon className="h-3.5 w-3.5" /> {fmtDate(booking.scheduled_date)}
-          </p>
-          <p className="flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> {fmtTime(booking.scheduled_time)}
-          </p>
-        </div>
-        {booking.notes && (
-          <div className="space-y-1 sm:col-span-2">
-            <p className="text-xs font-medium text-muted-foreground">Notas</p>
-            <p className="flex items-start gap-1.5">
-              <StickyNote className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-              <span className="whitespace-pre-wrap">{booking.notes}</span>
-            </p>
-          </div>
-        )}
-        <div className="text-xs text-muted-foreground sm:col-span-2">
-          Creada: {new Date(booking.created_at).toLocaleString("es-AR")} · Actualizada:{" "}
-          {new Date(booking.updated_at).toLocaleString("es-AR")}
-        </div>
-        <div className="space-y-1 sm:col-span-2">
-          <p className="text-xs font-medium text-muted-foreground">Origen</p>
-          <div className="rounded-md border bg-muted/30 p-2 text-xs">
-            <p>
-              <span className="text-muted-foreground">Fuente:</span>{" "}
-              {booking.marketing_source ?? "—"} ·{" "}
-              <span className="text-muted-foreground">Medio:</span>{" "}
-              {booking.marketing_medium ?? "—"}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Campaña:</span>{" "}
-              {booking.marketing_campaign ?? "—"} ·{" "}
-              <span className="text-muted-foreground">QR:</span> {booking.qr_code_slug ?? "—"}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Landing:</span> {booking.landing_url ?? "—"}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Referrer:</span> {booking.referrer_url ?? "—"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <OperatorAssignmentFields booking={booking} />
-
-      <BookingWhatsAppActions booking={booking} />
-
-      <div className="space-y-2 border-t pt-3">
-        <p className="text-xs font-medium text-muted-foreground">Pago</p>
-        <div className="rounded-md border bg-muted/30 p-2 text-xs space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <PaymentStatusBadge value={booking.payment_status} />
-            <span className="text-muted-foreground">·</span>
-            <span>{booking.payment_method}</span>
-          </div>
-          {latestPayment.isLoading ? (
-            <p className="text-muted-foreground">Cargando último pago…</p>
-          ) : lp ? (
-            <>
-              <p>
-                <span className="text-muted-foreground">Proveedor:</span> {lp.provider}
-                {lp.provider_payment_id && (
-                  <>
-                    {" · "}
-                    <span className="text-muted-foreground">ID:</span>{" "}
-                    <code className="font-mono">{lp.provider_payment_id}</code>
-                  </>
-                )}
-              </p>
-              <p>
-                <span className="text-muted-foreground">Actualizado:</span>{" "}
-                {new Date(lp.updated_at).toLocaleString("es-AR")}
-              </p>
-              {rawStatus && (
-                <p>
-                  <span className="text-muted-foreground">Estado bruto:</span> {rawStatus}
-                </p>
-              )}
-              {lp.raw_payload && (
-                <button
-                  type="button"
-                  className="text-xs text-primary underline"
-                  onClick={() => setShowRaw((s) => !s)}
-                >
-                  {showRaw ? "Ocultar payload" : "Ver payload"}
-                </button>
-              )}
-              {showRaw && (
-                <pre className="max-h-40 overflow-auto rounded bg-background p-2 text-[10px]">
-                  {JSON.stringify(lp.raw_payload, null, 2)}
-                </pre>
-              )}
-            </>
-          ) : (
-            <p className="text-muted-foreground">Sin registros de pago todavía.</p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2 border-t pt-3">
-        <p className="text-xs font-medium text-muted-foreground">Factura / comprobante</p>
-        <div className="rounded-md border bg-muted/30 p-2 text-xs space-y-2">
-          {invoiceQuery.isLoading ? (
-            <p className="text-muted-foreground">Cargando factura…</p>
-          ) : invoiceQuery.data ? (
-            <>
-              <p>
-                <span className="font-mono font-medium">{invoiceQuery.data.invoice_number}</span>
-                <span className="text-muted-foreground"> · </span>
-                {fmtInvoiceDate(invoiceQuery.data.issued_at)}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" asChild>
-                  <Link
-                    to="/admin/facturas/$invoiceId"
-                    params={{ invoiceId: invoiceQuery.data.id }}
-                  >
-                    <FileText className="mr-1 h-3.5 w-3.5" /> Ver factura
-                  </Link>
-                </Button>
-                <Button size="sm" variant="outline" asChild>
-                  <Link
-                    to="/admin/facturas/$invoiceId"
-                    params={{ invoiceId: invoiceQuery.data.id }}
-                    search={{ print: "1" }}
-                  >
-                    <Printer className="mr-1 h-3.5 w-3.5" /> Imprimir factura
-                  </Link>
-                </Button>
-              </div>
-            </>
-          ) : booking.payment_status === "paid" ? (
-            <div className="space-y-2">
-              <p className="text-muted-foreground">Pago confirmado sin comprobante emitido.</p>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={generateInvoice.isPending}
-                onClick={() => generateInvoice.mutate()}
-              >
-                {generateInvoice.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                Generar factura
-              </Button>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">
-              La factura se genera al marcar el pago como pagado.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-2 border-t pt-3">
-        <p className="text-xs font-medium text-muted-foreground">Marcar pago manualmente</p>
-        <div className="flex flex-wrap gap-2">
-          {MANUAL_PAYMENT_STATUSES.map((m) => (
-            <Button
-              key={m.value}
-              size="sm"
-              variant="outline"
-              disabled={manualPay.isPending}
-              onClick={() => setPendingManual(m.value)}
-            >
-              {m.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2 border-t pt-3">
-        <p className="text-xs font-medium text-muted-foreground">Acciones rápidas</p>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("confirmed")}
-          >
-            <CheckCircle2 className="mr-1 h-4 w-4" /> Confirmar
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("in_progress")}
-          >
-            <PlayCircle className="mr-1 h-4 w-4" /> Iniciar
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("completed")}
-          >
-            <CheckCircle2 className="mr-1 h-4 w-4" /> Completar
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => onQuickStatus("needs_review")}
-          >
-            <Flag className="mr-1 h-4 w-4" /> Revisar
-          </Button>
-          <Button size="sm" variant="destructive" disabled={busy} onClick={onCancel}>
-            <XCircle className="mr-1 h-4 w-4" /> Cancelar
-          </Button>
-          <Button size="sm" variant="destructive" disabled={busy} onClick={onDelete}>
-            <Trash2 className="mr-1 h-4 w-4" /> Eliminar
-          </Button>
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" onClick={onEdit}>
-          <Pencil className="mr-1 h-4 w-4" /> Editar reserva
-        </Button>
-      </DialogFooter>
-
-      <AlertDialog open={!!pendingManual} onOpenChange={(o) => !o && setPendingManual(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Confirmar cambio de pago?</AlertDialogTitle>
-            <AlertDialogDescription>
-              El estado del pago pasará de{" "}
-              <strong>
-                {paymentStatusLabels[booking.payment_status] ?? booking.payment_status}
-              </strong>{" "}
-              a{" "}
-              <strong>
-                {pendingManual ? (paymentStatusLabels[pendingManual] ?? pendingManual) : ""}
-              </strong>
-              . Quedará registrado en pagos y comunicaciones.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Volver</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (pendingManual) {
-                  manualPay.mutate(pendingManual);
-                  setPendingManual(null);
-                }
-              }}
-            >
-              Confirmar
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  );
 }
 
 // ===========================================================================
@@ -967,7 +478,9 @@ export function BookingEditForm({
           extras_total: catalog.extrasTotal,
           payment_method: form.payment_method,
           payment_status: form.payment_status,
-          booking_status: form.booking_status,
+          ...(isAdminCommercialBookingStatus(form.booking_status)
+            ? { booking_status: form.booking_status }
+            : {}),
           notes: form.notes?.trim() || null,
         })
         .eq("id", form.id);
@@ -1523,18 +1036,25 @@ export function BookingFormFields({
         </Select>
       </Field>
       <Field label="Estado de la reserva">
-        <Select value={form.booking_status} onValueChange={(v) => update({ booking_status: v })}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {BOOKING_STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {bookingStatusLabels[s]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {isAdminOperationalBypassStatus(form.booking_status) ? (
+          <p className="pt-2 text-sm text-muted-foreground">
+            Estado operativo actual: {bookingStatusLabels[form.booking_status] ?? form.booking_status}.
+            Se actualiza desde la app del operador.
+          </p>
+        ) : (
+          <Select value={form.booking_status} onValueChange={(v) => update({ booking_status: v })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ADMIN_COMMERCIAL_BOOKING_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {bookingStatusLabels[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </Field>
       <Field label="Notas" className="sm:col-span-2">
         <Textarea
@@ -1573,19 +1093,14 @@ export function DeleteBookingDialog({
   onOpenChange,
   onConfirm,
   busy,
+  extraMessage,
 }: {
   booking: Booking | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
   busy?: boolean;
+  extraMessage?: string | null;
 }) {
-  const invoiceQuery = useQuery({
-    queryKey: ["admin", "booking-invoice", booking?.id],
-    enabled: !!booking?.id,
-    queryFn: () => fetchInvoiceForBooking(booking!.id),
-  });
-  const hasInvoice = !!invoiceQuery.data;
-  const paid = booking?.payment_status === "paid";
   return (
     <AlertDialog open={!!booking} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -1599,13 +1114,8 @@ export function DeleteBookingDialog({
                   {fmtTime(booking.scheduled_time)}. Esto no se puede deshacer.
                 </p>
               )}
-              {booking && (paid || hasInvoice) && (
-                <p className="text-destructive">
-                  {paid ? "El pago figura como pagado. " : ""}
-                  {hasInvoice ? "Hay una factura asociada y también se eliminará. " : ""}
-                  Si es un lavado real, usá Cancelar en lugar de borrar.
-                </p>
-              )}
+              <p>{DELETE_BOOKING_CONFIRM_COPY}</p>
+              {extraMessage && <p className="text-destructive">{extraMessage}</p>}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -1657,8 +1167,6 @@ export function CancelBookingDialog({
 // ===========================================================================
 
 export function BookingDialogs({
-  selected,
-  setSelected,
   editing,
   setEditing,
   creating,
@@ -1666,8 +1174,6 @@ export function BookingDialogs({
   createDefaults,
   onMutate,
 }: {
-  selected: Booking | null;
-  setSelected: (b: Booking | null) => void;
   editing: Booking | null;
   setEditing: (b: Booking | null) => void;
   creating: boolean;
@@ -1675,56 +1181,8 @@ export function BookingDialogs({
   createDefaults?: { date?: string; time?: string };
   onMutate: () => void;
 }) {
-  const [confirmCancel, setConfirmCancel] = useState<Booking | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<Booking | null>(null);
-  const quickStatus = useQuickBookingStatus({
-    onSuccess: () => {
-      onMutate();
-    },
-  });
-  const removeBooking = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await deleteBooking(id);
-      if (!res.ok) throw new Error(res.error);
-    },
-    onSuccess: () => {
-      toast.success("Reserva eliminada.");
-      setConfirmDelete(null);
-      setSelected(null);
-      onMutate();
-    },
-    onError: (e: Error) => toast.error(e.message || "No pudimos eliminar la reserva."),
-  });
-
   return (
     <>
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          {selected && (
-            <BookingDetail
-              booking={selected}
-              onEdit={() => {
-                setEditing(selected);
-                setSelected(null);
-              }}
-              onCancel={() => setConfirmCancel(selected)}
-              onDelete={() => setConfirmDelete(selected)}
-              onQuickStatus={(s) => {
-                quickStatus.mutate(
-                  { id: selected.id, booking_status: s },
-                  {
-                    onSuccess: () => {
-                      setSelected({ ...selected, booking_status: s });
-                    },
-                  },
-                );
-              }}
-              busy={quickStatus.isPending || removeBooking.isPending}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           {editing && (
@@ -1755,32 +1213,6 @@ export function BookingDialogs({
           )}
         </DialogContent>
       </Dialog>
-
-      <CancelBookingDialog
-        booking={confirmCancel}
-        onOpenChange={(o) => !o && setConfirmCancel(null)}
-        onConfirm={() => {
-          if (confirmCancel) {
-            quickStatus.mutate(
-              { id: confirmCancel.id, booking_status: "cancelled" },
-              {
-                onSettled: () => {
-                  setConfirmCancel(null);
-                  setSelected(null);
-                },
-              },
-            );
-          }
-        }}
-      />
-      <DeleteBookingDialog
-        booking={confirmDelete}
-        onOpenChange={(o) => !o && setConfirmDelete(null)}
-        busy={removeBooking.isPending}
-        onConfirm={() => {
-          if (confirmDelete) removeBooking.mutate(confirmDelete.id);
-        }}
-      />
     </>
   );
 }

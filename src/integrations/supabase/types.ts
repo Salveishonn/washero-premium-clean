@@ -98,6 +98,176 @@ export type Database = {
         };
         Relationships: [];
       };
+      booking_events: {
+        Row: {
+          actor_id: string | null;
+          actor_type: string;
+          booking_id: string;
+          client_event_id: string | null;
+          created_at: string;
+          event_type: string;
+          id: string;
+          metadata: Json;
+        };
+        Insert: {
+          actor_id?: string | null;
+          actor_type: string;
+          booking_id: string;
+          client_event_id?: string | null;
+          created_at?: string;
+          event_type: string;
+          id?: string;
+          metadata?: Json;
+        };
+        Update: {
+          actor_id?: string | null;
+          actor_type?: string;
+          booking_id?: string;
+          client_event_id?: string | null;
+          created_at?: string;
+          event_type?: string;
+          id?: string;
+          metadata?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "booking_events_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      booking_operations: {
+        Row: {
+          accepted_at: string | null;
+          arrived_at: string | null;
+          booking_id: string;
+          cancelled_at: string | null;
+          closed_at: string | null;
+          created_at: string;
+          current_operator_id: string | null;
+          en_route_at: string | null;
+          offered_at: string | null;
+          phase: string;
+          phase_changed_at: string;
+          proof_required_at: string | null;
+          updated_at: string;
+          version: number;
+          wash_completed_at: string | null;
+          wash_started_at: string | null;
+        };
+        Insert: {
+          accepted_at?: string | null;
+          arrived_at?: string | null;
+          booking_id: string;
+          cancelled_at?: string | null;
+          closed_at?: string | null;
+          created_at?: string;
+          current_operator_id?: string | null;
+          en_route_at?: string | null;
+          offered_at?: string | null;
+          phase: string;
+          phase_changed_at?: string;
+          proof_required_at?: string | null;
+          updated_at?: string;
+          version?: number;
+          wash_completed_at?: string | null;
+          wash_started_at?: string | null;
+        };
+        Update: {
+          accepted_at?: string | null;
+          arrived_at?: string | null;
+          booking_id?: string;
+          cancelled_at?: string | null;
+          closed_at?: string | null;
+          created_at?: string;
+          current_operator_id?: string | null;
+          en_route_at?: string | null;
+          offered_at?: string | null;
+          phase?: string;
+          phase_changed_at?: string;
+          proof_required_at?: string | null;
+          updated_at?: string;
+          version?: number;
+          wash_completed_at?: string | null;
+          wash_started_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "booking_operations_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "booking_operations_current_operator_id_fkey";
+            columns: ["current_operator_id"];
+            isOneToOne: false;
+            referencedRelation: "admin_users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      booking_proof_media: {
+        Row: {
+          booking_id: string;
+          client_upload_id: string;
+          content_sha256: string;
+          created_at: string;
+          id: string;
+          mime_type: string;
+          proof_kind: string;
+          size_bytes: number;
+          storage_bucket: string;
+          storage_path: string;
+          uploaded_by_staff_id: string;
+        };
+        Insert: {
+          booking_id: string;
+          client_upload_id: string;
+          content_sha256: string;
+          created_at?: string;
+          id?: string;
+          mime_type: string;
+          proof_kind: string;
+          size_bytes: number;
+          storage_bucket: string;
+          storage_path: string;
+          uploaded_by_staff_id: string;
+        };
+        Update: {
+          booking_id?: string;
+          client_upload_id?: string;
+          content_sha256?: string;
+          created_at?: string;
+          id?: string;
+          mime_type?: string;
+          proof_kind?: string;
+          size_bytes?: number;
+          storage_bucket?: string;
+          storage_path?: string;
+          uploaded_by_staff_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "booking_proof_media_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: false;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "booking_proof_media_uploaded_by_staff_id_fkey";
+            columns: ["uploaded_by_staff_id"];
+            isOneToOne: false;
+            referencedRelation: "admin_users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       booking_requests: {
         Row: {
           address: string | null;

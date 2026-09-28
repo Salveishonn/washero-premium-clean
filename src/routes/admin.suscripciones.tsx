@@ -872,7 +872,7 @@ function UsageHistoryTab() {
                   </TableCell>
                   <TableCell>
                     <Button asChild variant="ghost" size="sm">
-                      <Link to="/admin/reservas" search={{ booking: r.booking_id }}>
+                      <Link to="/admin/reservas/$bookingId" params={{ bookingId: r.booking_id }}>
                         Ver reserva
                       </Link>
                     </Button>

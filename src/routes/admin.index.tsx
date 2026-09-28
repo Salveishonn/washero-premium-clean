@@ -101,7 +101,7 @@ async function fetchMetrics() {
 
 function AdminOpsHub() {
   const qc = useQueryClient();
-  const navigate = useNavigate({ from: "/admin/" });
+  const navigate = useNavigate();
   const search = Route.useSearch();
   const today = todayIso();
   const selectedDate = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? search.date : today;
@@ -113,7 +113,6 @@ function AdminOpsHub() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [showAll, setShowAll] = useState(search.view === "list");
 
-  const [selected, setSelected] = useState<Booking | null>(null);
   const [editing, setEditing] = useState<Booking | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -235,11 +234,11 @@ function AdminOpsHub() {
 
   useEffect(() => {
     if (!search.booking) return;
-    const found =
-      (rangeQuery.data ?? []).find((b) => b.id === search.booking) ??
-      (listQuery.data ?? []).find((b) => b.id === search.booking);
-    if (found) setSelected(found);
-  }, [search.booking, rangeQuery.data, listQuery.data]);
+    void navigate({
+      to: "/admin/reservas/$bookingId",
+      params: { bookingId: search.booking },
+    });
+  }, [navigate, search.booking]);
 
   const onMutate = () => {
     qc.invalidateQueries({ queryKey: ["admin"] });
@@ -247,13 +246,21 @@ function AdminOpsHub() {
 
   const setDate = (iso: string) => {
     void navigate({
+      to: "/admin/",
       search: (prev) => ({ ...prev, date: iso, view: "day", filter: undefined }),
     });
     setDateFilter("day");
   };
 
+  const openBooking = (bookingId: string) => {
+    void navigate({
+      to: "/admin/reservas/$bookingId",
+      params: { bookingId },
+    });
+  };
+
   const applyKpi = (filter: NonNullable<z.infer<typeof opsSearchSchema>["filter"]>) => {
-    void navigate({ search: (prev) => ({ ...prev, filter, view: "list" }) });
+    void navigate({ to: "/admin/", search: (prev) => ({ ...prev, filter, view: "list" }) });
   };
 
   const dateLabel = new Intl.DateTimeFormat("es-AR", {
@@ -326,7 +333,7 @@ function AdminOpsHub() {
         <DayTimeline
           dateIso={selectedDate}
           bookings={dayBookings}
-          onSelect={setSelected}
+          onSelect={(b) => openBooking(b.id)}
           onCreate={() => setCreating(true)}
         />
       )}
@@ -344,7 +351,7 @@ function AdminOpsHub() {
                     key={b.id}
                     type="button"
                     className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left text-sm hover:bg-muted/50"
-                    onClick={() => setSelected(b)}
+                    onClick={() => openBooking(b.id)}
                   >
                     <span className="truncate">{b.customer_name}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -366,7 +373,7 @@ function AdminOpsHub() {
                     key={b.id}
                     type="button"
                     className="flex w-full items-center justify-between gap-2 rounded-md px-1 py-1.5 text-left text-sm hover:bg-muted/50"
-                    onClick={() => setSelected(b)}
+                    onClick={() => openBooking(b.id)}
                   >
                     <span className="truncate">{b.customer_name}</span>
                     <span className="shrink-0 text-xs font-medium">{formatPrice(b.price)}</span>
@@ -494,7 +501,7 @@ function AdminOpsHub() {
                 </TableHeader>
                 <TableBody>
                   {filteredList.map((b) => (
-                    <TableRow key={b.id} className="cursor-pointer" onClick={() => setSelected(b)}>
+                    <TableRow key={b.id} className="cursor-pointer" onClick={() => openBooking(b.id)}>
                       <TableCell>
                         <div className="font-medium">{b.customer_name}</div>
                         <div className="text-xs text-muted-foreground">{b.customer_phone}</div>
@@ -525,7 +532,7 @@ function AdminOpsHub() {
           {showAll && !listQuery.isLoading && filteredList.length > 0 && (
             <div className="grid gap-3 md:hidden">
               {filteredList.map((b) => (
-                <Card key={b.id} className="cursor-pointer" onClick={() => setSelected(b)}>
+                <Card key={b.id} className="cursor-pointer" onClick={() => openBooking(b.id)}>
                   <CardContent className="space-y-1 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate font-medium">{b.customer_name}</p>
@@ -543,8 +550,6 @@ function AdminOpsHub() {
       )}
 
       <BookingDialogs
-        selected={selected}
-        setSelected={setSelected}
         editing={editing}
         setEditing={setEditing}
         creating={creating}
