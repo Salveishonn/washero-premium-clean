@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { Booking } from "@/components/admin/bookings";
 import { DayTimeline } from "@/components/admin/ops/DayTimeline";
+import { OperationsDayFilters } from "@/components/admin/ops/OperationsDayFilters";
 import { OperationsDaySummary } from "@/components/admin/ops/OperationsDaySummary";
 import { OperationsHubVisualFixture } from "@/components/admin/ops/OperationsHubVisualFixture";
 import { hubBuildRowState, type HubRowState } from "@/lib/admin-operations-hub";
@@ -132,6 +133,15 @@ describe("operations hub UI", () => {
     );
     expect(screen.getByText("No hay reservas en este estado.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+
+  it("puts horizontal scrolling on the filter strip, not the page root", () => {
+    const { container } = render(<OperationsDayFilters value="all" onChange={() => undefined} />);
+    const scroller = container.firstElementChild as HTMLElement;
+    expect(scroller.className).toContain("overflow-x-auto");
+    expect(scroller.className).toContain("min-w-0");
+    expect(scroller.className).toContain("max-w-full");
+    expect(scroller.querySelector('[role="tablist"]')?.className).toContain("w-max");
   });
 
   it("assembles the visual fixture with one warning chip and incident accent", () => {

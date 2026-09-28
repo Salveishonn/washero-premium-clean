@@ -75,4 +75,23 @@ describe("admin operations hub query batching contract", () => {
     expect(timeline).not.toMatch(/>\s*Eliminar\s*</);
     expect(timeline).not.toContain("WhatsApp");
   });
+
+  it("lets the admin content column shrink so the filter strip owns horizontal scroll", () => {
+    const shell = readRepoFile("src/routes/admin.tsx");
+    expect(shell).toContain('className="flex min-w-0 flex-1 flex-col"');
+    expect(shell).toContain('className="min-w-0 flex-1 p-6"');
+    expect(shell).toContain("flex min-h-screen min-w-0 w-full");
+
+    const filters = readRepoFile("src/components/admin/ops/OperationsDayFilters.tsx");
+    expect(filters).toContain("min-w-0 max-w-full overflow-x-auto");
+    expect(filters).toContain("flex w-max gap-1.5");
+    expect(filters).toContain('role="tablist"');
+
+    const hub = readRepoFile("src/routes/admin.index.tsx");
+    expect(hub).toContain('className="min-w-0 space-y-5"');
+    expect(hub).not.toMatch(/className="space-y-5 overflow-x-hidden"/);
+
+    const carousel = readRepoFile("src/components/admin/ops/DayCarousel.tsx");
+    expect(carousel).toContain("flex min-w-0 w-full items-center gap-1");
+  });
 });

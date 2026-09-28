@@ -46,10 +46,10 @@ function AdminGuarded() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background">
+      <div className="flex min-h-screen min-w-0 w-full bg-background">
         <AdminSidebar />
-        <div className="flex flex-1 flex-col">
-          <header className="flex h-14 items-center justify-between gap-2 border-b border-border/60 bg-background px-3">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border/60 bg-background px-3">
             <div className="flex items-center gap-2">
               <SidebarTrigger />
               <span className="text-sm font-medium text-muted-foreground">Panel Washero</span>
@@ -70,7 +70,7 @@ function AdminGuarded() {
               </Button>
             </div>
           </header>
-          <main className="flex-1 p-6">
+          <main className="min-w-0 flex-1 p-6">
             <Outlet />
           </main>
         </div>
