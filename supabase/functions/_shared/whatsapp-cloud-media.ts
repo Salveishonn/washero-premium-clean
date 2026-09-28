@@ -3,6 +3,9 @@
 export const WHATSAPP_CLOUD_ACCESS_TOKEN_ENV = "WHATSAPP_CLOUD_ACCESS_TOKEN";
 export const WHATSAPP_GRAPH_VERSION = "v20.0";
 export const WHATSAPP_GRAPH_BASE = `https://graph.facebook.com/${WHATSAPP_GRAPH_VERSION}`;
+/** Live n8n inbound Washero number. Distinct from WA_CLOUD_PHONE_NUMBER_ID. */
+export const WASHERO_INBOUND_PHONE_NUMBER_ID = "1128142377056954";
+const GRAPH_USER_AGENT = "WasheroWhatsAppTools/1.0";
 
 export type GraphMediaDownloadFailure =
   | "missing_media_id"
@@ -19,6 +22,7 @@ export type GraphMediaDownloadDeps = {
   token: string;
   fetchImpl?: typeof fetch;
   maxBytes?: number;
+  phoneNumberId?: string;
 };
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
@@ -28,6 +32,20 @@ function headerLength(headers: Headers): number | null {
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+export function graphMediaMetaUrl(mediaId: string, phoneNumberId?: string): string {
+  const params = new URLSearchParams({ fields: "url,mime_type,sha256,file_size" });
+  const phone = String(phoneNumberId ?? "").trim();
+  if (phone) params.set("phone_number_id", phone);
+  return `${WHATSAPP_GRAPH_BASE}/${encodeURIComponent(mediaId)}?${params.toString()}`;
+}
+
+function graphHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "User-Agent": GRAPH_USER_AGENT,
+  };
 }
 
 /**
@@ -44,12 +62,12 @@ export async function downloadWhatsAppCloudMedia(
   if (!token) return { ok: false, error: "missing_token" };
   const fetchImpl = deps.fetchImpl ?? fetch;
   const maxBytes = deps.maxBytes ?? DEFAULT_MAX_BYTES;
-  const auth = { Authorization: `Bearer ${token}` };
+  const headers = graphHeaders(token);
 
   let metaRes: Response;
   try {
-    metaRes = await fetchImpl(`${WHATSAPP_GRAPH_BASE}/${encodeURIComponent(id)}`, {
-      headers: auth,
+    metaRes = await fetchImpl(graphMediaMetaUrl(id, deps.phoneNumberId), {
+      headers,
     });
   } catch {
     return { ok: false, error: "graph_meta_failed" };
@@ -67,7 +85,7 @@ export async function downloadWhatsAppCloudMedia(
 
   let binRes: Response;
   try {
-    binRes = await fetchImpl(url, { headers: auth, redirect: "follow" });
+    binRes = await fetchImpl(url, { headers, redirect: "follow" });
   } catch {
     return { ok: false, error: "graph_binary_failed" };
   }

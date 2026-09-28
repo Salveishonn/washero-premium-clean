@@ -108,6 +108,27 @@ describe("n8n inbound receipt pipeline", () => {
     }).external_message_id).toBe("wamid.1");
   });
 
+  it("passes webhook phone_number_id and never the outbound Cloud number", () => {
+    const fromTrigger = buildIngestReceiptArgs({
+      media_id: "MEDIA1",
+      message_type: "image",
+      phone_number_id: "1128142377056954",
+    });
+    expect(fromTrigger.phone_number_id).toBe("1128142377056954");
+    const missing = buildIngestReceiptArgs({
+      media_id: "MEDIA1",
+      message_type: "image",
+    });
+    expect(missing.phone_number_id).toBe("");
+    expect(JSON.stringify(fromTrigger)).not.toContain("1327924187062435");
+    const inbox = readRepoFile("supabase/functions/_shared/whatsapp-inbox-ingest.ts");
+    const media = readRepoFile("supabase/functions/_shared/whatsapp-cloud-media.ts");
+    expect(inbox).toContain("phoneNumberId: phone_number_id || WASHERO_INBOUND_PHONE_NUMBER_ID");
+    expect(inbox).not.toContain("WA_CLOUD_PHONE_NUMBER_ID");
+    expect(media).toContain('WASHERO_INBOUND_PHONE_NUMBER_ID = "1128142377056954"');
+    expect(media).toContain("phone_number_id");
+  });
+
   it("still captures on retry when ingest_message says should_bot_reply=false", () => {
     const retry = inboundPipelineSteps({
       message_type: "image",

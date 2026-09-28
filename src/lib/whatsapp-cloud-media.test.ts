@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  capturePaymentReceipt,
+  type PaymentReceiptCapturePorts,
+} from "../../supabase/functions/_shared/payment-receipt-capture";
+import {
+  WASHERO_INBOUND_PHONE_NUMBER_ID,
   WHATSAPP_CLOUD_ACCESS_TOKEN_ENV,
   WHATSAPP_GRAPH_BASE,
   downloadWhatsAppCloudMedia,
+  graphMediaMetaUrl,
 } from "../../supabase/functions/_shared/whatsapp-cloud-media";
+import { WA_CLOUD_PHONE_NUMBER_ID } from "../../supabase/functions/_shared/whatsapp-cloud";
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x34]);
@@ -39,7 +46,26 @@ describe("downloadWhatsAppCloudMedia", () => {
     });
     expect(result).toEqual({ ok: true, bytes: JPEG, contentType: "image/jpeg" });
     expect(calls[0]).toContain("/MEDIA_JPEG");
+    expect(calls[0]).toContain("fields=");
     expect(calls[1]).toBe("https://graph.example/bin");
+  });
+
+  it("scopes Graph metadata to the inbound phone_number_id", async () => {
+    const calls: string[] = [];
+    await downloadWhatsAppCloudMedia("MEDIA_JPEG", {
+      token: "test-token",
+      phoneNumberId: WASHERO_INBOUND_PHONE_NUMBER_ID,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.startsWith(WHATSAPP_GRAPH_BASE)) {
+          return jsonResponse({ url: "https://graph.example/bin", mime_type: "image/jpeg" });
+        }
+        return bytesResponse(JPEG, "image/jpeg");
+      },
+    });
+    expect(calls[0]).toContain(`phone_number_id=${WASHERO_INBOUND_PHONE_NUMBER_ID}`);
+    expect(calls[0]).not.toContain(WA_CLOUD_PHONE_NUMBER_ID);
   });
 
   it("downloads a valid PDF", async () => {
@@ -112,5 +138,84 @@ describe("downloadWhatsAppCloudMedia", () => {
       },
     });
     expect(result).toEqual({ ok: false, error: "oversize" });
+  });
+});
+
+describe("Cloud inbound receipt Graph media (production bug)", () => {
+  it("does not use the outbound Cloud number for inbound media GET", () => {
+    expect(WASHERO_INBOUND_PHONE_NUMBER_ID).toBe("1128142377056954");
+    expect(WA_CLOUD_PHONE_NUMBER_ID).toBe("1327924187062435");
+    expect(WASHERO_INBOUND_PHONE_NUMBER_ID).not.toBe(WA_CLOUD_PHONE_NUMBER_ID);
+    const url = graphMediaMetaUrl("MEDIA_RECEIPT", WASHERO_INBOUND_PHONE_NUMBER_ID);
+    expect(url).toContain("/MEDIA_RECEIPT?");
+    expect(url).toContain("phone_number_id=1128142377056954");
+    expect(url).not.toContain("1327924187062435");
+    expect(graphMediaMetaUrl("MEDIA_RECEIPT")).not.toContain("phone_number_id=");
+  });
+
+  it("downloads inbound receipt bytes and feeds canonical capture", async () => {
+    const graphCalls: string[] = [];
+    const downloaded = await downloadWhatsAppCloudMedia("MEDIA_RECEIPT", {
+      token: "test-token",
+      phoneNumberId: WASHERO_INBOUND_PHONE_NUMBER_ID,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        graphCalls.push(url);
+        if (url.startsWith(WHATSAPP_GRAPH_BASE)) {
+          expect(url).toContain("phone_number_id=1128142377056954");
+          expect(url).not.toContain(WA_CLOUD_PHONE_NUMBER_ID);
+          return jsonResponse({ url: "https://lookaside.example/bin", mime_type: "image/jpeg" });
+        }
+        expect(url).toBe("https://lookaside.example/bin");
+        return bytesResponse(JPEG, "image/jpeg");
+      },
+    });
+    expect(downloaded).toEqual({ ok: true, bytes: JPEG, contentType: "image/jpeg" });
+
+    const inserts: unknown[] = [];
+    const ports: PaymentReceiptCapturePorts = {
+      findDuplicateByExternalMessageId: async () => null,
+      findDuplicateByBotmakerMessageId: async () => null,
+      matchBooking: async () => ({
+        bookingId: "bk-unique",
+        receiptStatus: "pending_review",
+        eligibleCount: 1,
+      }),
+      ensureBucket: async () => {},
+      uploadObject: async () => ({ error: null }),
+      insertReceipt: async (row) => {
+        inserts.push(row);
+        return { error: null };
+      },
+      removeExact: async () => ({ error: null }),
+      now: () => 1789249125247,
+      createId: () => "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      logSafe: () => {},
+    };
+    const result = await capturePaymentReceipt(ports, {
+      phone: "5491100000000",
+      customerPhoneNormalized: "5491100000000",
+      botmakerMessageId: null,
+      externalMessageId: "wamid.test.inbound.graph",
+      messageType: "image",
+      mimeType: "image/jpeg",
+      fileName: "comprobante.jpg",
+      mediaUrl: "graph://MEDIA_RECEIPT",
+      persistZeroMatch: false,
+      mediaFailurePolicy: "abort",
+      loadMediaBytes: async () => {
+        if (!downloaded.ok) return { ok: false, reason: "download_failed" };
+        return { ok: true, bytes: downloaded.bytes, contentType: downloaded.contentType };
+      },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      outcome: "pending_review",
+      captured: true,
+      duplicate: false,
+      booking_matched: true,
+    });
+    expect(inserts).toHaveLength(1);
+    expect(graphCalls[0]).toContain("phone_number_id=1128142377056954");
   });
 });

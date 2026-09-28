@@ -56,6 +56,8 @@ export function buildIngestReceiptArgs(norm) {
     file_name: String(norm.file_name || ""),
     message_type: messageType,
     external_message_id: String(norm.external_message_id || ""),
+    // WhatsApp Trigger metadata; ingest falls back to the live inbound WABA id.
+    phone_number_id: String(norm.phone_number_id || "").trim(),
   };
 }
 

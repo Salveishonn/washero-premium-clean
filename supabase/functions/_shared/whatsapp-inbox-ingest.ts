@@ -10,7 +10,10 @@ import {
   type CapturePaymentReceiptResult,
 } from "./payment-receipt-capture.ts";
 import { makePaymentReceiptCapturePorts } from "./payment-receipts.ts";
-import { downloadWhatsAppCloudMedia } from "./whatsapp-cloud-media.ts";
+import {
+  WASHERO_INBOUND_PHONE_NUMBER_ID,
+  downloadWhatsAppCloudMedia,
+} from "./whatsapp-cloud-media.ts";
 import { whatsappCloudAccessToken } from "./whatsapp-cloud.ts";
 
 export type AssignmentStatus = "open" | "in_progress" | "resolved" | null;
@@ -229,6 +232,7 @@ export type IngestReceiptArgs = {
   external_message_id: string | null;
   caption: string | null;
   booking_id: string | null;
+  phone_number_id: string | null;
 };
 
 export type IngestReceiptToolResult = {
@@ -255,6 +259,7 @@ export function parseIngestReceiptArgs(raw: Record<string, unknown> | null | und
     external_message_id: external,
     caption: String(args.caption ?? "").trim() || null,
     booking_id: String(args.booking_id ?? "").trim() || null,
+    phone_number_id: String(args.phone_number_id ?? "").trim() || null,
   };
 }
 
@@ -280,7 +285,8 @@ export async function ingestWhatsAppReceipt(
   admin: SupabaseClient,
   input: { phone: string; args: IngestReceiptArgs },
 ): Promise<IngestReceiptToolResult> {
-  const { media_id, mime_type, file_name, message_type, external_message_id } = input.args;
+  const { media_id, mime_type, file_name, message_type, external_message_id, phone_number_id } =
+    input.args;
   if (!media_id) {
     return {
       ok: false,
@@ -310,6 +316,7 @@ export async function ingestWhatsAppReceipt(
       if (!downloadedOnce) {
         downloadedOnce = await downloadWhatsAppCloudMedia(media_id, {
           token: whatsappCloudAccessToken(),
+          phoneNumberId: phone_number_id || WASHERO_INBOUND_PHONE_NUMBER_ID,
         });
       }
       if (!downloadedOnce.ok) {
@@ -323,5 +330,13 @@ export async function ingestWhatsAppReceipt(
       };
     },
   });
+  if (
+    result.error === "media_download_failed" &&
+    downloadedOnce &&
+    !downloadedOnce.ok
+  ) {
+    console.warn("[ingest_receipt] graph download failed", downloadedOnce.error);
+    return publicIngestReceiptResult({ ...result, error: downloadedOnce.error });
+  }
   return publicIngestReceiptResult(result);
 }
