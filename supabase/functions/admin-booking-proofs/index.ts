@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { getAdminHardDeleteGate } from "../_shared/admin-gate.ts";
-import { BOOKING_PROOFS_BUCKET } from "../_shared/booking-proof.ts";
 import {
+  ADMIN_PROOFS_BUCKET,
   ADMIN_PROOF_SIGNED_URL_TTL_SECONDS,
   runAdminBookingProofs,
   type AdminProofInternalRow,
@@ -81,7 +81,7 @@ Deno.serve(async (req) => {
       },
       createSignedUrl: async (storagePath) => {
         const { data, error } = await admin.storage
-          .from(BOOKING_PROOFS_BUCKET)
+          .from(ADMIN_PROOFS_BUCKET)
           .createSignedUrl(storagePath, ADMIN_PROOF_SIGNED_URL_TTL_SECONDS);
         if (error || !data?.signedUrl) {
           console.error("[admin-booking-proofs] signed_url_failed");

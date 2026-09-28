@@ -1,4 +1,9 @@
-import { isUuid } from "./booking-proof.ts";
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
 
 export const ADMIN_PROOF_SIGNED_URL_TTL_SECONDS = 20 * 60;
 export const ADMIN_PROOFS_BUCKET = "booking-proofs";
