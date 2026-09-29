@@ -34,7 +34,10 @@ describe("admin booking control tower navigation", () => {
     expect(readRepoFile("src/routes/admin.facturas_.$invoiceId.tsx")).toContain(
       'to: "/admin/reservas/$bookingId"',
     );
-    expect(readRepoFile("src/routes/admin.clientes.tsx")).toContain('to="/admin/reservas/$bookingId"');
+    expect(readRepoFile("src/components/admin/customer-detail/AdminCustomerDossier.tsx")).toContain(
+      'to="/admin/reservas/$bookingId"',
+    );
+    expect(readRepoFile("src/routes/admin.clientes.tsx")).toContain('to: "/admin/clientes/$customerId"');
     expect(readRepoFile("src/routes/admin.comprobantes.tsx")).toContain(
       'to="/admin/reservas/$bookingId"',
     );

@@ -1,3 +1,5 @@
+import { digitsOnly, parseArgentinaMobile } from "@/lib/phone";
+
 export type InboxConversationRow = {
   conversation: BotmakerConversation;
   assignment?: ConversationAssignment;
@@ -273,7 +275,21 @@ export function matchesSearch(
   ]
     .filter(Boolean)
     .map((v) => foldText(String(v)));
-  return parts.some((p) => p.includes(needle));
+  if (parts.some((p) => p.includes(needle))) return true;
+  return phoneNeedlesMatch(q, [c.customer_phone, br?.customer_phone]);
+}
+
+function phoneNeedlesMatch(needle: string, phones: Array<string | null | undefined>): boolean {
+  const parsed = parseArgentinaMobile(needle);
+  const needleDigits = parsed.ok ? parsed.national : digitsOnly(needle);
+  if (needleDigits.length < 8) return false;
+  return phones.some((phone) => {
+    const haystack = digitsOnly(phone);
+    if (!haystack) return false;
+    if (haystack.includes(needleDigits)) return true;
+    const parsedPhone = parseArgentinaMobile(phone);
+    return parsedPhone.ok && parsedPhone.national === needleDigits;
+  });
 }
 
 export const FALLBACK_LABELS: Record<string, string> = {

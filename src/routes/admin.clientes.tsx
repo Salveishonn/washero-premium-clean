@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -12,20 +12,18 @@ import {
   Mail,
   MapPin,
   AlertTriangle,
-  Eye,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
-import { parseArgentinaMobile } from "@/lib/phone";
 import { deleteCustomer } from "@/lib/admin-delete";
+import { CustomerForm } from "@/components/admin/CustomerForm";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -45,14 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -61,18 +52,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  fmtDate,
-  fmtTime,
-  type Booking,
-} from "@/components/admin/bookings";
-import {
-  BookingStatusBadge,
-  PaymentStatusBadge,
-  BookingSourceBadge,
-  formatPrice,
-} from "@/lib/booking-badges";
-import { CustomerSubscriptionCard } from "@/components/admin/CustomerSubscriptionCard";
+import { fmtDate } from "@/components/admin/bookings";
 
 export const Route = createFileRoute("/admin/clientes")({
   component: ClientesPage,
@@ -96,12 +76,10 @@ type Customer = {
 
 type CustomerRow = Customer & {
   total_bookings: number;
+  /** Latest scheduled_date, not a completed wash. */
   last_booking_date: string | null;
   duplicate_phone: boolean;
 };
-
-const BOOKING_SELECT =
-  "id,customer_id,customer_name,customer_phone,customer_email,address,neighborhood,vehicle_type,service_id,service_name,scheduled_date,scheduled_time,duration_minutes,payment_method,payment_status,booking_status,booking_source,price,notes,created_at,updated_at";
 
 // ===========================================================================
 // Page
@@ -109,13 +87,16 @@ const BOOKING_SELECT =
 
 function ClientesPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const openCustomer = (customerId: string) => {
+    navigate({ to: "/admin/clientes/$customerId", params: { customerId } });
+  };
 
   const [search, setSearch] = useState("");
   const [neighborhoodFilter, setNeighborhoodFilter] = useState<string>("all");
   const [bookingsFilter, setBookingsFilter] = useState<string>("all");
   const [activityFilter, setActivityFilter] = useState<string>("all");
 
-  const [selected, setSelected] = useState<CustomerRow | null>(null);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<CustomerRow | null>(null);
@@ -384,15 +365,22 @@ function ClientesPage() {
                     <TableHead>Contacto</TableHead>
                     <TableHead>Ubicación</TableHead>
                     <TableHead>Reservas</TableHead>
-                    <TableHead>Última</TableHead>
+                    <TableHead>Última reserva</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filtered.map((c) => (
-                    <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
+                    <TableRow key={c.id} className="cursor-pointer" onClick={() => openCustomer(c.id)}>
                       <TableCell>
-                        <div className="font-medium">{c.full_name}</div>
+                        <Link
+                          to="/admin/clientes/$customerId"
+                          params={{ customerId: c.id }}
+                          className="font-medium hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {c.full_name}
+                        </Link>
                         {c.duplicate_phone && (
                           <Badge variant="outline" className="mt-1 gap-1 text-amber-700 dark:text-amber-300">
                             <AlertTriangle className="h-3 w-3" /> Teléfono duplicado
@@ -418,9 +406,6 @@ function ClientesPage() {
                         {c.last_booking_date ? fmtDate(c.last_booking_date) : "—"}
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button variant="ghost" size="sm" onClick={() => setSelected(c)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
                         <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -446,11 +431,18 @@ function ClientesPage() {
           {/* Mobile cards */}
           <div className="space-y-2 md:hidden">
             {filtered.map((c) => (
-              <Card key={c.id} className="cursor-pointer" onClick={() => setSelected(c)}>
+              <Card key={c.id} className="cursor-pointer" onClick={() => openCustomer(c.id)}>
                 <CardContent className="space-y-2 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-medium">{c.full_name}</div>
+                      <Link
+                        to="/admin/clientes/$customerId"
+                        params={{ customerId: c.id }}
+                        className="font-medium hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {c.full_name}
+                      </Link>
                       <div className="text-xs text-muted-foreground flex items-center gap-1">
                         <Phone className="h-3 w-3" /> {c.phone}
                       </div>
@@ -488,26 +480,6 @@ function ClientesPage() {
           </div>
         </>
       )}
-
-      {/* Detail */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-          {selected && (
-            <CustomerDetail
-              customer={selected}
-              onEdit={() => {
-                setEditing(selected);
-                setSelected(null);
-              }}
-              onMutate={refresh}
-              onDelete={() => {
-                setDeleteBookingsToo(false);
-                setDeleting(selected);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* Edit */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
@@ -554,322 +526,10 @@ function ClientesPage() {
         }}
         onDeleted={() => {
           setDeleting(null);
-          setSelected(null);
           refresh();
         }}
       />
     </div>
-  );
-}
-
-// ===========================================================================
-// Customer detail
-// ===========================================================================
-
-function CustomerDetail({
-  customer,
-  onEdit,
-  onMutate,
-  onDelete,
-}: {
-  customer: Customer;
-  onEdit: () => void;
-  onMutate: () => void;
-  onDelete: () => void;
-}) {
-  const qc = useQueryClient();
-
-  const bookingsQuery = useQuery({
-    queryKey: ["admin", "customer", customer.id, "bookings"],
-    queryFn: async (): Promise<Booking[]> => {
-      // Match by id OR by phone (catches website bookings not yet linked).
-      const orFilter = customer.phone
-        ? `customer_id.eq.${customer.id},customer_phone.eq.${customer.phone}`
-        : `customer_id.eq.${customer.id}`;
-      const { data, error } = await supabase
-        .from("bookings")
-        .select(BOOKING_SELECT)
-        .or(orFilter)
-        .order("scheduled_date", { ascending: false })
-        .order("scheduled_time", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return (data ?? []) as Booking[];
-    },
-  });
-
-  const linkByPhone = useMutation({
-    mutationFn: async () => {
-      if (!customer.phone) return 0;
-      const { data, error } = await supabase
-        .from("bookings")
-        .update({ customer_id: customer.id })
-        .eq("customer_phone", customer.phone)
-        .is("customer_id", null)
-        .select("id");
-      if (error) throw error;
-      return data?.length ?? 0;
-    },
-    onSuccess: (n) => {
-      toast.success(`Vinculadas ${n} reserva(s).`);
-      qc.invalidateQueries({ queryKey: ["admin", "customer", customer.id, "bookings"] });
-      onMutate();
-    },
-    onError: (e: any) => toast.error(e?.message ?? "Error"),
-  });
-
-  const stats = useMemo(() => {
-    const list = bookingsQuery.data ?? [];
-    let completed = 0, cancelled = 0, pending = 0, spent = 0;
-    for (const b of list) {
-      if (b.booking_status === "completed") completed++;
-      else if (b.booking_status === "cancelled") cancelled++;
-      else pending++;
-      if (b.booking_status !== "cancelled") spent += b.price ?? 0;
-    }
-    const last = list[0]?.scheduled_date ?? null;
-    return { total: list.length, completed, cancelled, pending, spent, last };
-  }, [bookingsQuery.data]);
-
-  return (
-    <div className="space-y-4">
-      <DialogHeader>
-        <DialogTitle>{customer.full_name}</DialogTitle>
-        <DialogDescription>
-          Cliente desde {fmtDate(customer.created_at.slice(0, 10))}
-        </DialogDescription>
-      </DialogHeader>
-
-      {/* Info */}
-      <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
-        <InfoRow icon={<Phone className="h-3.5 w-3.5" />} label="Teléfono" value={customer.phone} />
-        <InfoRow icon={<Mail className="h-3.5 w-3.5" />} label="Email" value={customer.email ?? "—"} />
-        <InfoRow icon={<MapPin className="h-3.5 w-3.5" />} label="Barrio" value={customer.neighborhood ?? "—"} />
-        <InfoRow icon={<MapPin className="h-3.5 w-3.5" />} label="Dirección" value={customer.address ?? "—"} />
-        {customer.notes && (
-          <div className="sm:col-span-2">
-            <div className="text-xs text-muted-foreground">Notas</div>
-            <div className="text-sm whitespace-pre-wrap">{customer.notes}</div>
-          </div>
-        )}
-      </div>
-
-      <CustomerSubscriptionCard customerId={customer.id} />
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <Stat label="Total" value={stats.total} />
-        <Stat label="Completadas" value={stats.completed} />
-        <Stat label="Pendientes" value={stats.pending} />
-        <Stat label="Canceladas" value={stats.cancelled} />
-        <Stat label="Gastado" value={formatPrice(stats.spent)} />
-      </div>
-
-      {/* Actions */}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={onEdit}>
-          <Pencil className="mr-2 h-4 w-4" /> Editar
-        </Button>
-        <Button variant="destructive" size="sm" onClick={onDelete}>
-          <Trash2 className="mr-2 h-4 w-4" /> Eliminar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => linkByPhone.mutate()}
-          disabled={linkByPhone.isPending}
-        >
-          {linkByPhone.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Link2 className="mr-2 h-4 w-4" />
-          )}
-          Vincular reservas por teléfono
-        </Button>
-      </div>
-
-      {/* Bookings */}
-      <div>
-        <div className="mb-2 text-sm font-medium">Historial de reservas</div>
-        {bookingsQuery.isLoading ? (
-          <Skeleton className="h-24 w-full" />
-        ) : (bookingsQuery.data ?? []).length === 0 ? (
-          <div className="rounded-md border p-3 text-sm text-muted-foreground">
-            Sin reservas.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {(bookingsQuery.data ?? []).map((b) => (
-              <div key={b.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">
-                    {fmtDate(b.scheduled_date)} · {fmtTime(b.scheduled_time)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {b.service_name} · {formatPrice(b.price)}
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    <BookingStatusBadge value={b.booking_status} />
-                    <PaymentStatusBadge value={b.payment_status} />
-                    <BookingSourceBadge value={b.booking_source} />
-                  </div>
-                </div>
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/admin/reservas/$bookingId" params={{ bookingId: b.id }}>
-                    Ver reserva
-                  </Link>
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground flex items-center gap-1">{icon} {label}</div>
-      <div className="text-sm">{value}</div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-md border p-2 text-center">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold">{value}</div>
-    </div>
-  );
-}
-
-// ===========================================================================
-// Customer form (create + edit)
-// ===========================================================================
-
-function CustomerForm({
-  mode,
-  initial,
-  onClose,
-  onSaved,
-}: {
-  mode: "create" | "edit";
-  initial?: Customer;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [full_name, setFullName] = useState(initial?.full_name ?? "");
-  const [phone, setPhone] = useState(initial?.phone ?? "");
-  const [email, setEmail] = useState(initial?.email ?? "");
-  const [address, setAddress] = useState(initial?.address ?? "");
-  const [neighborhood, setNeighborhood] = useState(initial?.neighborhood ?? "");
-  const [notes, setNotes] = useState(initial?.notes ?? "");
-  const [busy, setBusy] = useState(false);
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!full_name.trim()) return toast.error("El nombre es obligatorio.");
-    const parsedPhone = parseArgentinaMobile(phone);
-    if (!parsedPhone.ok) return toast.error(parsedPhone.error);
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return toast.error("Email inválido.");
-    }
-
-    setBusy(true);
-    try {
-      const payload = {
-        full_name: full_name.trim(),
-        phone: parsedPhone.display,
-        email: email.trim() || null,
-        address: address.trim() || null,
-        neighborhood: neighborhood.trim() || null,
-        notes: notes.trim() || null,
-      };
-      if (mode === "create") {
-        const { data: existing } = await supabase
-          .from("customers")
-          .select("id")
-          .in("phone", parsedPhone.lookupVariants)
-          .limit(1)
-          .maybeSingle();
-        if (existing?.id) {
-          toast.error("Ya existe un cliente con ese teléfono.");
-          setBusy(false);
-          return;
-        }
-        const { error } = await supabase.from("customers").insert(payload);
-        if (error) throw error;
-        toast.success("Cliente creado.");
-      } else if (initial) {
-        const { error } = await supabase
-          .from("customers")
-          .update(payload)
-          .eq("id", initial.id);
-        if (error) throw error;
-        toast.success("Cliente actualizado.");
-      }
-      onSaved();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Error al guardar");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form onSubmit={save} className="space-y-3">
-      <DialogHeader>
-        <DialogTitle>{mode === "create" ? "Nuevo cliente" : "Editar cliente"}</DialogTitle>
-      </DialogHeader>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <Label>Nombre *</Label>
-          <Input value={full_name} onChange={(e) => setFullName(e.target.value)} required maxLength={120} />
-        </div>
-        <div>
-          <Label>Teléfono *</Label>
-          <Input
-            value={phone}
-            inputMode="tel"
-            placeholder="+54 9 11 1234-5678"
-            onChange={(e) => setPhone(e.target.value)}
-            onBlur={() => {
-              const parsed = parseArgentinaMobile(phone);
-              if (parsed.ok) setPhone(parsed.display);
-            }}
-            required
-            maxLength={40}
-          />
-        </div>
-        <div>
-          <Label>Email</Label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} />
-        </div>
-        <div className="sm:col-span-2">
-          <Label>Dirección</Label>
-          <Input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={250} />
-        </div>
-        <div className="sm:col-span-2">
-          <Label>Barrio</Label>
-          <Input value={neighborhood} onChange={(e) => setNeighborhood(e.target.value)} maxLength={120} />
-        </div>
-        <div className="sm:col-span-2">
-          <Label>Notas</Label>
-          <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000} />
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onClose}>Cancelar</Button>
-        <Button type="submit" disabled={busy}>
-          {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Guardar
-        </Button>
-      </DialogFooter>
-    </form>
   );
 }
 

@@ -46,6 +46,7 @@ import { Route as OperatorPerfilRouteImport } from './routes/operator.perfil'
 import { Route as OperatorSemanaRouteImport } from './routes/operator.semana'
 import { Route as PublicComprobantePublicTokenRouteImport } from './routes/_public.comprobante.$publicToken'
 import { Route as PublicQSlugRouteImport } from './routes/_public.q.$slug'
+import { Route as AdminClientesCustomerIdRouteImport } from './routes/admin.clientes_.$customerId'
 import { Route as AdminFacturasInvoiceIdRouteImport } from './routes/admin.facturas_.$invoiceId'
 import { Route as AdminReservasBookingIdRouteImport } from './routes/admin.reservas_.$bookingId'
 import { Route as OperatorReservaBookingIdRouteImport } from './routes/operator.reserva.$bookingId'
@@ -235,6 +236,11 @@ const PublicQSlugRoute = PublicQSlugRouteImport.update({
   path: '/q/$slug',
   getParentRoute: () => PublicRoute,
 } as any)
+const AdminClientesCustomerIdRoute = AdminClientesCustomerIdRouteImport.update({
+  id: '/clientes_/$customerId',
+  path: '/clientes/$customerId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminFacturasInvoiceIdRoute = AdminFacturasInvoiceIdRouteImport.update({
   id: '/facturas_/$invoiceId',
   path: '/facturas/$invoiceId',
@@ -289,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/operator/': typeof OperatorIndexRoute
   '/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/q/$slug': typeof PublicQSlugRoute
+  '/admin/clientes/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
@@ -328,6 +335,7 @@ export interface FileRoutesByTo {
   '/operator': typeof OperatorIndexRoute
   '/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/q/$slug': typeof PublicQSlugRoute
+  '/admin/clientes/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
@@ -371,6 +379,7 @@ export interface FileRoutesById {
   '/operator/': typeof OperatorIndexRoute
   '/_public/comprobante/$publicToken': typeof PublicComprobantePublicTokenRoute
   '/_public/q/$slug': typeof PublicQSlugRoute
+  '/admin/clientes_/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas_/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas_/$bookingId': typeof AdminReservasBookingIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
@@ -414,6 +423,7 @@ export interface FileRouteTypes {
     | '/operator/'
     | '/comprobante/$publicToken'
     | '/q/$slug'
+    | '/admin/clientes/$customerId'
     | '/admin/facturas/$invoiceId'
     | '/admin/reservas/$bookingId'
     | '/operator/reserva/$bookingId'
@@ -453,6 +463,7 @@ export interface FileRouteTypes {
     | '/operator'
     | '/comprobante/$publicToken'
     | '/q/$slug'
+    | '/admin/clientes/$customerId'
     | '/admin/facturas/$invoiceId'
     | '/admin/reservas/$bookingId'
     | '/operator/reserva/$bookingId'
@@ -495,6 +506,7 @@ export interface FileRouteTypes {
     | '/operator/'
     | '/_public/comprobante/$publicToken'
     | '/_public/q/$slug'
+    | '/admin/clientes_/$customerId'
     | '/admin/facturas_/$invoiceId'
     | '/admin/reservas_/$bookingId'
     | '/operator/reserva/$bookingId'
@@ -767,6 +779,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicQSlugRouteImport
       parentRoute: typeof PublicRoute
     }
+    '/admin/clientes_/$customerId': {
+      id: '/admin/clientes_/$customerId'
+      path: '/clientes/$customerId'
+      fullPath: '/admin/clientes/$customerId'
+      preLoaderRoute: typeof AdminClientesCustomerIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/facturas_/$invoiceId': {
       id: '/admin/facturas_/$invoiceId'
       path: '/facturas/$invoiceId'
@@ -834,6 +853,7 @@ interface AdminRouteChildren {
   AdminSuscripcionesRoute: typeof AdminSuscripcionesRoute
   AdminWhatsappConfigRoute: typeof AdminWhatsappConfigRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminClientesCustomerIdRoute: typeof AdminClientesCustomerIdRoute
   AdminFacturasInvoiceIdRoute: typeof AdminFacturasInvoiceIdRoute
   AdminReservasBookingIdRoute: typeof AdminReservasBookingIdRoute
 }
@@ -860,6 +880,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminSuscripcionesRoute: AdminSuscripcionesRoute,
   AdminWhatsappConfigRoute: AdminWhatsappConfigRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminClientesCustomerIdRoute: AdminClientesCustomerIdRoute,
   AdminFacturasInvoiceIdRoute: AdminFacturasInvoiceIdRoute,
   AdminReservasBookingIdRoute: AdminReservasBookingIdRoute,
 }
