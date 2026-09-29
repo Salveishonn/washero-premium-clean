@@ -12,12 +12,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { Booking } from "@/components/admin/bookings";
 import {
+  AdminCreateBookingDialog,
   BookingEditForm,
   CancelBookingDialog,
   DeleteBookingDialog,
   useQuickBookingStatus,
+  type Booking,
 } from "@/components/admin/bookings";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,8 @@ import { FINANCIAL_EVIDENCE_DELETE_COPY } from "@/lib/admin-booking-detail";
 import { paymentStatusLabels } from "@/lib/booking-badges";
 import { deliverInvoice, generateInvoiceForBooking } from "@/lib/invoices";
 import { supabase } from "@/integrations/supabase/client";
+import { buildBookingRebookDefaults, type BookingCreateDefaults } from "@/lib/booking-rebook";
+import { todayArgentinaIso } from "@/lib/admin-customer-detail";
 
 const MANUAL_PAYMENT_STATUSES = [
   { value: "paid", label: "Marcar como pagado" },
@@ -61,11 +64,37 @@ const MANUAL_PAYMENT_STATUSES = [
   { value: "refunded", label: "Marcar como reembolsado" },
 ] as const;
 
-export function BookingAdminActions({ booking }: { booking: Booking }) {
+export function BookingAdminActions({
+  booking,
+  operationPhase = null,
+}: {
+  booking: Booking;
+  operationPhase?: string | null;
+}) {
   const isMobile = useIsMobile();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [rebook, setRebook] = useState<BookingCreateDefaults | null>(null);
+  const rebookDefaults = buildBookingRebookDefaults(
+    {
+      customerId: booking.customer_id,
+      customerName: booking.customer_name,
+      customerPhone: booking.customer_phone,
+      customerEmail: booking.customer_email,
+      address: booking.address,
+      neighborhood: booking.neighborhood,
+      vehicleType: booking.vehicle_type,
+      serviceId: booking.service_id,
+      serviceName: booking.service_name,
+      selectedExtras: booking.selected_extras,
+      paymentMethod: booking.payment_method,
+      scheduledDate: booking.scheduled_date,
+      bookingStatus: booking.booking_status,
+      phase: operationPhase,
+    },
+    todayArgentinaIso(),
+  );
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingManual, setPendingManual] = useState<string | null>(null);
@@ -173,6 +202,11 @@ export function BookingAdminActions({ booking }: { booking: Booking }) {
 
   const actions = (
     <>
+      {rebookDefaults && (
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => setRebook(rebookDefaults)}>
+          Volver a reservar
+        </Button>
+      )}
       <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
         <Pencil className="mr-1 h-4 w-4" /> Editar
       </Button>
@@ -240,6 +274,24 @@ export function BookingAdminActions({ booking }: { booking: Booking }) {
       ) : (
         <div className="flex flex-wrap gap-2">{actions}</div>
       )}
+
+      <AdminCreateBookingDialog
+        open={!!rebook}
+        onOpenChange={(open) => {
+          if (!open) setRebook(null);
+        }}
+        defaults={rebook}
+        onCreated={(result) => {
+          invalidate();
+          setRebook(null);
+          if (result.bookingId) {
+            void navigate({
+              to: "/admin/reservas/$bookingId",
+              params: { bookingId: result.bookingId },
+            });
+          }
+        }}
+      />
 
       <Dialog open={editing} onOpenChange={(o) => !o && setEditing(false)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">

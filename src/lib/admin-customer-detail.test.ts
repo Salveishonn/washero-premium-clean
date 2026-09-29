@@ -17,7 +17,10 @@ const TODAY = "2026-09-29";
 function booking(partial: Partial<CustomerHistoryBooking> & Pick<CustomerHistoryBooking, "id">): CustomerHistoryBooking {
   return {
     customer_id: "11111111-1111-4111-8111-111111111111",
+    service_id: "svc-1",
     service_name: "Lavado completo",
+    payment_method: "Transferencia",
+    selected_extras: [],
     vehicle_type: "Auto",
     scheduled_date: "2026-09-01",
     scheduled_time: "10:00:00",

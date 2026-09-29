@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 
+import { AdminCreateBookingDialog } from "@/components/admin/bookings";
 import { AdminCustomerDossier } from "@/components/admin/customer-detail/AdminCustomerDossier";
+import type { BookingCreateDefaults } from "@/lib/booking-rebook";
 import { CustomerForm } from "@/components/admin/CustomerForm";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -61,6 +63,9 @@ function CustomerDossierLoader({
   onCloseEdit: () => void;
   onSaved: () => void;
 }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [rebook, setRebook] = useState<BookingCreateDefaults | null>(null);
   const customerQuery = useQuery({
     queryKey: adminCustomerQueryKey(customerId),
     queryFn: () => fetchAdminCustomerById(customerId),
@@ -164,6 +169,24 @@ function CustomerDossierLoader({
         hasActiveSubscription={!!subscriptionQuery.data}
         todayIso={todayArgentinaIso()}
         onEdit={onEdit}
+        onRebook={setRebook}
+      />
+      <AdminCreateBookingDialog
+        open={!!rebook}
+        onOpenChange={(open) => {
+          if (!open) setRebook(null);
+        }}
+        defaults={rebook}
+        onCreated={(result) => {
+          void qc.invalidateQueries({ queryKey: adminCustomerQueryKey(customerId) });
+          setRebook(null);
+          if (result.bookingId) {
+            void navigate({
+              to: "/admin/reservas/$bookingId",
+              params: { bookingId: result.bookingId },
+            });
+          }
+        }}
       />
       <Dialog open={editing} onOpenChange={(open) => !open && onCloseEdit()}>
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
