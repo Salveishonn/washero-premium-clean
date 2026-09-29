@@ -30,7 +30,23 @@ describe("customer retention queue contract", () => {
     expect(joined).not.toMatch(/deskcomm|waha|from ["']next/i);
     expect(joined).not.toMatch(/retention_score|churn_probability|customer_status|crm_stage|followup_state/i);
     expect(joined).toContain("deriveCustomerCrm");
+    expect(joined).toContain("getCompletedWashEffectiveDate");
     expect(joined).toContain("buildBookingRebookDefaults");
     expect(joined).toContain("relationshipLabels");
+    expect(joined).not.toContain("phase_changed_at");
+  });
+
+  it("shares one wash-date rule with the dossier and does not treat phase changes as the wash", () => {
+    const detail = readRepoFile("src/lib/admin-customer-detail.ts");
+    const dossier = readRepoFile("src/components/admin/customer-detail/AdminCustomerDossier.tsx");
+    const start = detail.indexOf("export function getCompletedWashEffectiveDate");
+    const end = detail.indexOf("export function", start + 10);
+    const helper = detail.slice(start, end);
+    expect(helper).toContain("wash_completed_at");
+    expect(helper).toContain("scheduled_date");
+    expect(helper).not.toContain("phase_changed_at");
+    expect(helper).not.toContain("closed_at");
+    expect(dossier).toContain("getCompletedWashEffectiveDate");
+    expect(detail).toContain("repeatIntervalsFromCompletedWashes");
   });
 });

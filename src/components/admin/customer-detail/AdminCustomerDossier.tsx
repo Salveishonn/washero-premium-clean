@@ -20,6 +20,7 @@ import {
   customerSinceIso,
   customerWhatsappHref,
   deriveCustomerCrm,
+  getCompletedWashEffectiveDate,
   mensajesQueryForPhone,
   summarizeCommunicationText,
   type AdminCustomerRecord,
@@ -31,9 +32,7 @@ import {
 import { getCustomerRetention } from "@/lib/admin-customer-retention";
 
 function formatLastWash(wash: DerivedCompletedWash): string {
-  const stamp = wash.operation?.wash_completed_at || wash.operation?.closed_at;
-  if (stamp) return formatAdminDateTime(stamp);
-  return fmtDate(wash.booking.scheduled_date);
+  return fmtDate(getCompletedWashEffectiveDate(wash.booking, wash.operation));
 }
 
 function locationLine(booking: Pick<CustomerHistoryBooking, "neighborhood" | "address">): string {
@@ -264,7 +263,7 @@ export function AdminCustomerDossier({
               <Stat label="Canceladas" value={String(crm.cancelledCount)} />
               <Stat
                 label="Último lavado"
-                value={crm.lastWash ? fmtDate(crm.lastWash.booking.scheduled_date) : "—"}
+                value={crm.lastWash ? formatLastWash(crm.lastWash) : "—"}
               />
               {crm.upcoming && (
                 <Stat
