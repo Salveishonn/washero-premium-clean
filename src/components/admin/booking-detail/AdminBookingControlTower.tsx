@@ -250,7 +250,7 @@ function ControlTowerBody({
           operatorEmail={operatorEmail}
           warnings={warnings}
         />
-        <BookingAdminActions booking={booking} />
+        <BookingAdminActions booking={booking} operationPhase={phase} />
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">

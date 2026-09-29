@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Mail, MapPin, MessageSquare, Pencil, Phone } from "lucide-react";
 
 import { fmtDate, fmtTime } from "@/components/admin/bookings";
+import { buildBookingRebookDefaults, type BookingCreateDefaults } from "@/lib/booking-rebook";
 import { CustomerSubscriptionCard } from "@/components/admin/CustomerSubscriptionCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +47,7 @@ export function AdminCustomerDossier({
   hasActiveSubscription,
   todayIso,
   onEdit,
+  onRebook,
 }: {
   customer: AdminCustomerRecord;
   bookings: CustomerHistoryBooking[];
@@ -54,6 +56,7 @@ export function AdminCustomerDossier({
   hasActiveSubscription: boolean;
   todayIso: string;
   onEdit?: () => void;
+  onRebook?: (defaults: BookingCreateDefaults) => void;
 }) {
   const crm = deriveCustomerCrm({
     bookings,
@@ -76,6 +79,27 @@ export function AdminCustomerDossier({
   const address = customer.address || customer.formatted_address;
   const lastWashBooking = crm.lastWash?.booking ?? null;
   const historyCapped = bookings.length >= CUSTOMER_BOOKING_LIMIT;
+  const rebookDefaultsFor = (booking: CustomerHistoryBooking) =>
+    buildBookingRebookDefaults(
+      {
+        customerId: booking.customer_id === customer.id ? customer.id : null,
+        customerName: customer.full_name,
+        customerPhone: customer.phone,
+        customerEmail: customer.email,
+        address: booking.address ?? "",
+        neighborhood: booking.neighborhood ?? "",
+        vehicleType: booking.vehicle_type,
+        serviceId: booking.service_id,
+        serviceName: booking.service_name,
+        selectedExtras: booking.selected_extras,
+        paymentMethod: booking.payment_method,
+        scheduledDate: booking.scheduled_date,
+        bookingStatus: booking.booking_status,
+        phase: operationByBooking.get(booking.id)?.phase,
+      },
+      todayIso,
+    );
+  const latestRebook = lastWashBooking ? rebookDefaultsFor(lastWashBooking) : null;
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl space-y-5 overflow-x-hidden">
@@ -100,6 +124,16 @@ export function AdminCustomerDossier({
               <MessageSquare className="mr-2 h-4 w-4" /> Abrir en Mensajes
             </Link>
           </Button>
+          {latestRebook && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onRebook?.(latestRebook)}
+            >
+              Volver a reservar
+            </Button>
+          )}
           {whatsappHref && (
             <Button asChild size="sm" variant="outline">
               <a href={whatsappHref} target="_blank" rel="noreferrer">
@@ -286,6 +320,8 @@ export function AdminCustomerDossier({
                       key={booking.id}
                       booking={booking}
                       phase={operationByBooking.get(booking.id)?.phase}
+                      rebook={rebookDefaultsFor(booking)}
+                      onRebook={onRebook}
                     />
                   ))}
                 </div>
@@ -296,6 +332,8 @@ export function AdminCustomerDossier({
                     key={booking.id}
                     booking={booking}
                     phase={operationByBooking.get(booking.id)?.phase}
+                    rebook={rebookDefaultsFor(booking)}
+                    onRebook={onRebook}
                   />
                 ))}
               </div>
@@ -385,9 +423,13 @@ function EmptyCopy({ children }: { children: string }) {
 function HistoryRow({
   booking,
   phase,
+  rebook,
+  onRebook,
 }: {
   booking: CustomerHistoryBooking;
   phase: string | undefined;
+  rebook: BookingCreateDefaults | null;
+  onRebook?: (defaults: BookingCreateDefaults) => void;
 }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-3 px-3 py-2">
@@ -404,11 +446,27 @@ function HistoryRow({
           <Badge variant="outline">{phase ? operationPhaseDisplay(phase) : "Sin fase"}</Badge>
         </div>
       </div>
-      <Button asChild size="sm" variant="outline" className="shrink-0">
-        <Link to="/admin/reservas/$bookingId" params={{ bookingId: booking.id }}>
-          Ver reserva
-        </Link>
-      </Button>
+      <div className="flex shrink-0 flex-wrap justify-end gap-2">
+        {rebook && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRebook?.(rebook);
+            }}
+          >
+            Volver a reservar
+          </Button>
+        )}
+        <Button asChild size="sm" variant="outline" className="shrink-0">
+          <Link to="/admin/reservas/$bookingId" params={{ bookingId: booking.id }}>
+            Ver reserva
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }
@@ -416,9 +474,13 @@ function HistoryRow({
 function HistoryCard({
   booking,
   phase,
+  rebook,
+  onRebook,
 }: {
   booking: CustomerHistoryBooking;
   phase: string | undefined;
+  rebook: BookingCreateDefaults | null;
+  onRebook?: (defaults: BookingCreateDefaults) => void;
 }) {
   return (
     <div className="min-w-0 space-y-2 rounded-md border p-3">
@@ -435,11 +497,28 @@ function HistoryCard({
         <PaymentStatusBadge value={booking.payment_status} />
         <Badge variant="outline">{phase ? operationPhaseDisplay(phase) : "Sin fase"}</Badge>
       </div>
-      <Button asChild size="sm" className="w-full">
-        <Link to="/admin/reservas/$bookingId" params={{ bookingId: booking.id }}>
-          Ver reserva
-        </Link>
-      </Button>
+      <div className="flex flex-col gap-2">
+        {rebook && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRebook?.(rebook);
+            }}
+          >
+            Volver a reservar
+          </Button>
+        )}
+        <Button asChild size="sm" className="w-full">
+          <Link to="/admin/reservas/$bookingId" params={{ bookingId: booking.id }}>
+            Ver reserva
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }

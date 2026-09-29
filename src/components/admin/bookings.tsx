@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +52,7 @@ import {
   isAdminOperationalBypassStatus,
 } from "@/lib/admin-booking-status";
 import { DELETE_BOOKING_CONFIRM_COPY } from "@/lib/admin-booking-detail";
+import type { BookingCreateDefaults } from "@/lib/booking-rebook";
 
 // ===========================================================================
 // Types
@@ -548,33 +549,38 @@ export function BookingCreateForm({
   onCreated,
   defaultDate,
   defaultTime,
+  defaults,
 }: {
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (result: { bookingId?: string }) => void;
   defaultDate?: string;
   defaultTime?: string;
+  defaults?: BookingCreateDefaults | null;
 }) {
   const { services, areas, pricing } = useLookups();
+  const [retiredServiceName, setRetiredServiceName] = useState<string | null>(null);
+  const [retiredZone, setRetiredZone] = useState(false);
+  const [retiredExtras, setRetiredExtras] = useState(false);
   const [form, setForm] = useState<Booking>({
     id: "",
     customer_id: null,
-    customer_name: "",
-    customer_phone: "",
-    customer_email: "",
-    address: "",
-    neighborhood: "",
-    vehicle_type: "Auto",
-    service_id: null,
-    service_name: "",
-    scheduled_date: defaultDate ?? todayIso(),
-    scheduled_time: defaultTime ?? "10:00",
+    customer_name: defaults?.customerName ?? "",
+    customer_phone: defaults?.customerPhone ?? "",
+    customer_email: defaults?.customerEmail ?? "",
+    address: defaults?.address ?? "",
+    neighborhood: defaults?.neighborhood ?? "",
+    vehicle_type: defaults?.vehicleType ?? "Auto",
+    service_id: defaults?.serviceId ?? null,
+    service_name: defaults?.serviceName ?? "",
+    scheduled_date: defaults?.date ?? defaultDate ?? todayIso(),
+    scheduled_time: defaults?.time ?? defaultTime ?? "10:00",
     duration_minutes: 60,
-    payment_method: "Pagar después",
+    payment_method: defaults?.paymentMethod ?? "Pagar después",
     payment_status: "pending",
     booking_status: "confirmed",
     booking_source: "admin",
     price: 0,
-    selected_extras: [],
+    selected_extras: defaults?.extraCodes ?? [],
     extras_total: 0,
     notes: "",
     created_at: "",
@@ -597,6 +603,62 @@ export function BookingCreateForm({
       extras,
     });
   }, [services.data, form.service_id, form.vehicle_type, selectedExtras, vehicles, extras]);
+
+  useEffect(() => {
+    if (!services.isSuccess || !form.service_id) return;
+    const found = services.data?.find((service) => service.id === form.service_id);
+    if (found) {
+      if (form.service_name !== found.name) {
+        setForm((current) => ({ ...current, service_name: found.name }));
+      }
+      return;
+    }
+    setRetiredServiceName(form.service_name?.trim() || "anterior");
+    setForm((current) => ({ ...current, service_id: null, service_name: "" }));
+  }, [services.isSuccess, services.data, form.service_id, form.service_name]);
+
+  useEffect(() => {
+    if (!areas.isSuccess || !form.neighborhood) return;
+    if (areas.data?.some((area) => area.name === form.neighborhood)) return;
+    setRetiredZone(true);
+    setForm((current) => ({ ...current, neighborhood: "" }));
+  }, [areas.isSuccess, areas.data, form.neighborhood]);
+
+  useEffect(() => {
+    if (!pricing.isSuccess) return;
+    const allowed = new Set((pricing.data?.extras ?? []).map((extra) => extra.code));
+    const current = Array.isArray(form.selected_extras) ? form.selected_extras : [];
+    const kept = current.filter((code) => allowed.has(code));
+    if (kept.length === current.length) return;
+    setRetiredExtras(true);
+    setForm((previous) => ({ ...previous, selected_extras: kept }));
+  }, [pricing.isSuccess, pricing.data, form.selected_extras]);
+
+  useEffect(() => {
+    if (priceTouched || !form.service_id) return;
+    if (!services.data?.some((service) => service.id === form.service_id)) return;
+    if (
+      form.price === catalog.catalogPrice &&
+      form.duration_minutes === catalog.durationMinutes &&
+      form.extras_total === catalog.extrasTotal
+    ) {
+      return;
+    }
+    setForm((current) => ({
+      ...current,
+      price: catalog.catalogPrice,
+      duration_minutes: catalog.durationMinutes,
+      extras_total: catalog.extrasTotal,
+    }));
+  }, [
+    catalog,
+    priceTouched,
+    form.service_id,
+    form.price,
+    form.duration_minutes,
+    form.extras_total,
+    services.data,
+  ]);
 
   const isPastDate = form.scheduled_date < todayIso();
 
@@ -716,7 +778,7 @@ export function BookingCreateForm({
       toast.success(
         res.price != null ? `Reserva creada · ${formatPrice(res.price)}` : "Reserva creada.",
       );
-      onCreated();
+      onCreated({ bookingId: res.booking_id });
     },
     onError: (e: Error) => toast.error(e.message || "No pudimos crear la reserva."),
   });
@@ -729,12 +791,31 @@ export function BookingCreateForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Nueva reserva manual</DialogTitle>
+        <DialogTitle>
+          {defaults?.rebook
+            ? `Nueva reserva para ${defaults.rebook.customerName}`
+            : "Nueva reserva manual"}
+        </DialogTitle>
         <DialogDescription>
-          Cargá manualmente una reserva del lado del admin. Podés usar fechas pasadas para
-          lavados históricos, elegir extras y ajustar el precio.
+          {defaults?.rebook
+            ? `Basada en el lavado del ${fmtDate(defaults.rebook.sourceScheduledDate)}. Elegí una nueva fecha y horario. El precio y la disponibilidad se calcularán con las condiciones actuales.`
+            : "Cargá manualmente una reserva del lado del admin. Podés usar fechas pasadas para lavados históricos, elegir extras y ajustar el precio."}
         </DialogDescription>
       </DialogHeader>
+      {defaults?.rebook && (retiredServiceName || retiredZone || retiredExtras || defaults.rebook.vehicleOmitted) && (
+        <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+          {retiredServiceName && (
+            <p>El servicio anterior ({retiredServiceName}) ya no está disponible. Elegí uno actual.</p>
+          )}
+          {retiredExtras && (
+            <p>Algunos extras anteriores ya no están disponibles y quedaron afuera.</p>
+          )}
+          {retiredZone && <p>La zona anterior ya no está en cobertura. Elegí una zona actual.</p>}
+          {defaults.rebook.vehicleOmitted && (
+            <p>El tipo de vehículo anterior no está disponible. Elegí uno actual.</p>
+          )}
+        </div>
+      )}
       <form onSubmit={submit} className="space-y-4">
         <BookingFormFields
           form={form}
@@ -1166,6 +1247,38 @@ export function CancelBookingDialog({
 // All-in-one dialogs manager
 // ===========================================================================
 
+export function AdminCreateBookingDialog({
+  open,
+  onOpenChange,
+  defaults,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  defaults?: BookingCreateDefaults | null;
+  onCreated: (result: { bookingId?: string }) => void;
+}) {
+  const instanceKey = defaults?.rebook
+    ? `rebook:${defaults.customerPhone ?? ""}:${defaults.rebook.sourceScheduledDate}:${defaults.serviceId ?? ""}:${(defaults.extraCodes ?? []).join(",")}`
+    : `create:${defaults?.date ?? ""}:${defaults?.time ?? ""}`;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        {open && (
+          <BookingCreateForm
+            key={instanceKey}
+            defaultDate={defaults?.date}
+            defaultTime={defaults?.time}
+            defaults={defaults}
+            onClose={() => onOpenChange(false)}
+            onCreated={onCreated}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function BookingDialogs({
   editing,
   setEditing,
@@ -1178,7 +1291,7 @@ export function BookingDialogs({
   setEditing: (b: Booking | null) => void;
   creating: boolean;
   setCreating: (b: boolean) => void;
-  createDefaults?: { date?: string; time?: string };
+  createDefaults?: BookingCreateDefaults;
   onMutate: () => void;
 }) {
   return (
@@ -1198,21 +1311,15 @@ export function BookingDialogs({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={creating} onOpenChange={setCreating}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          {creating && (
-            <BookingCreateForm
-              defaultDate={createDefaults?.date}
-              defaultTime={createDefaults?.time}
-              onClose={() => setCreating(false)}
-              onCreated={() => {
-                onMutate();
-                setCreating(false);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <AdminCreateBookingDialog
+        open={creating}
+        onOpenChange={setCreating}
+        defaults={createDefaults}
+        onCreated={() => {
+          onMutate();
+          setCreating(false);
+        }}
+      />
     </>
   );
 }

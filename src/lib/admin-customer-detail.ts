@@ -50,15 +50,18 @@ export type AdminCustomerRecord = {
 export type CustomerHistoryBooking = {
   id: string;
   customer_id: string | null;
+  service_id: string | null;
   service_name: string;
   vehicle_type: string;
   scheduled_date: string;
   scheduled_time: string;
   booking_status: string;
   payment_status: string;
+  payment_method: string | null;
   price: number | null;
   address: string | null;
   neighborhood: string | null;
+  selected_extras: string[];
   created_at: string;
   updated_at: string;
 };
@@ -450,18 +453,40 @@ export async function fetchAdminCustomerById(customerId: string): Promise<AdminC
   return data;
 }
 
+function asExtraCodes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
 export async function fetchAdminCustomerBookings(customerId: string): Promise<CustomerHistoryBooking[]> {
   const { data, error } = await supabase
     .from("bookings")
     .select(
-      "id,customer_id,service_name,vehicle_type,scheduled_date,scheduled_time,booking_status,payment_status,price,address,neighborhood,created_at,updated_at",
+      "id,customer_id,service_id,service_name,vehicle_type,scheduled_date,scheduled_time,booking_status,payment_status,payment_method,price,address,neighborhood,selected_extras,created_at,updated_at",
     )
     .eq("customer_id", customerId)
     .order("scheduled_date", { ascending: false })
     .order("scheduled_time", { ascending: false })
     .limit(CUSTOMER_BOOKING_LIMIT);
   if (error) throw error;
-  return (data ?? []) as CustomerHistoryBooking[];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    customer_id: row.customer_id,
+    service_id: row.service_id,
+    service_name: row.service_name,
+    vehicle_type: row.vehicle_type,
+    scheduled_date: row.scheduled_date,
+    scheduled_time: row.scheduled_time,
+    booking_status: row.booking_status,
+    payment_status: row.payment_status,
+    payment_method: row.payment_method,
+    price: row.price,
+    address: row.address,
+    neighborhood: row.neighborhood,
+    selected_extras: asExtraCodes(row.selected_extras),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
 }
 
 export async function fetchAdminCustomerOperations(

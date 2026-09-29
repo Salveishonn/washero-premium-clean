@@ -60,7 +60,10 @@ const customer: AdminCustomerRecord = {
 function booking(partial: Partial<CustomerHistoryBooking> & Pick<CustomerHistoryBooking, "id" | "scheduled_date" | "booking_status">): CustomerHistoryBooking {
   return {
     customer_id: customer.id,
+    service_id: "svc-1",
     service_name: "Lavado completo",
+    payment_method: "Transferencia",
+    selected_extras: [],
     vehicle_type: "Auto",
     scheduled_time: "10:00:00",
     payment_status: "paid",
@@ -115,6 +118,7 @@ describe("admin customer dossier", () => {
       "href",
       "/admin/mensajes?q=1112345678",
     );
+    expect(screen.queryByRole("button", { name: "Volver a reservar" })).not.toBeInTheDocument();
   });
 
   it("keeps a future booking out of último lavado and links history to control tower", () => {
@@ -172,5 +176,22 @@ describe("admin customer dossier", () => {
     expect(screen.getByText("Servicio habitual")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Ver reserva" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/raw_payload/)).not.toBeInTheDocument();
+    const rebookButtons = screen.getAllByRole("button", { name: "Volver a reservar" });
+    expect(rebookButtons.length).toBeGreaterThan(0);
+    for (const button of rebookButtons) {
+      expect(button.closest("a")).toBeNull();
+    }
+    expect(screen.getAllByRole("link", { name: "Ver reserva" }).length).toBeGreaterThan(0);
+  });
+
+  it("does not offer rebook for a future booking", () => {
+    renderDossier([
+      booking({
+        id: "future",
+        scheduled_date: "2026-10-03",
+        booking_status: "confirmed",
+      }),
+    ]);
+    expect(screen.queryByRole("button", { name: "Volver a reservar" })).not.toBeInTheDocument();
   });
 });
