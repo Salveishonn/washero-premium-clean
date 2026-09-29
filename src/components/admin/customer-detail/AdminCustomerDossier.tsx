@@ -28,6 +28,7 @@ import {
   type CustomerOperationSnapshot,
   type DerivedCompletedWash,
 } from "@/lib/admin-customer-detail";
+import { getCustomerRetention } from "@/lib/admin-customer-retention";
 
 function formatLastWash(wash: DerivedCompletedWash): string {
   const stamp = wash.operation?.wash_completed_at || wash.operation?.closed_at;
@@ -63,6 +64,12 @@ export function AdminCustomerDossier({
     operations,
     todayIso,
     hasActiveSubscription,
+  });
+  const retention = getCustomerRetention({
+    customerId: customer.id,
+    bookings,
+    operations,
+    todayIso,
   });
   const activity = buildCustomerActivity({
     customer,
@@ -117,6 +124,11 @@ export function AdminCustomerDossier({
               </Badge>
             ))}
           </div>
+          {retention.eligibleForQueue && retention.daysSinceLastCompletedWash !== null && (
+            <p className="text-sm text-muted-foreground">
+              Para recuperar · {retention.daysSinceLastCompletedWash} días desde el último lavado
+            </p>
+          )}
         </div>
         <div className="flex min-w-0 flex-wrap gap-2">
           <Button asChild size="sm">
