@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -68,6 +68,20 @@ function ConfigPage() {
           Administrá servicios, zonas de cobertura y revisá el estado del sistema.
         </p>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="text-base">Precios</CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">
+              Servicios, adicionales y valores
+            </p>
+          </div>
+          <Button asChild size="sm">
+            <Link to="/admin/precios">Administrar precios</Link>
+          </Button>
+        </CardHeader>
+      </Card>
 
       <Tabs defaultValue="servicios" className="space-y-4">
         <TabsList className="flex flex-wrap h-auto">
