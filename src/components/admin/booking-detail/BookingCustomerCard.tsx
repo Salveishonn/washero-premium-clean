@@ -17,9 +17,17 @@ export function BookingCustomerCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
         <CardTitle className="text-sm">Cliente</CardTitle>
-        <Button asChild size="sm" variant="ghost">
-          <Link to="/admin/clientes">Ver cliente</Link>
-        </Button>
+        {booking.customer_id ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/admin/clientes/$customerId" params={{ customerId: booking.customer_id }}>
+              Ver cliente
+            </Link>
+          </Button>
+        ) : (
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/admin/clientes">Ver cliente</Link>
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <p className="font-medium">{booking.customer_name}</p>

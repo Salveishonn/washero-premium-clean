@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { z } from "zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, MessageSquare, Phone, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,7 +30,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const mensajesSearchSchema = z.object({
+  q: z.string().optional(),
+});
+
 export const Route = createFileRoute("/admin/mensajes")({
+  validateSearch: mensajesSearchSchema,
   component: MensajesPage,
 });
 
@@ -46,7 +52,8 @@ const FILTERS: { id: InboxFilter; label: string }[] = [
 function MensajesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<InboxFilter>("all");
-  const [search, setSearch] = useState("");
+  const initialQuery = Route.useSearch().q ?? "";
+  const [search, setSearch] = useState(initialQuery);
   const qc = useQueryClient();
   const isMobile = useIsMobile();
 

@@ -629,7 +629,9 @@ function SubActions({
     <div className="flex flex-wrap gap-1">
       {sub.customer?.id ? (
         <Button asChild variant="ghost" size="sm">
-          <Link to="/admin/clientes">Ver cliente</Link>
+          <Link to="/admin/clientes/$customerId" params={{ customerId: sub.customer.id }}>
+            Ver cliente
+          </Link>
         </Button>
       ) : null}
       {sub.status === "active" ? (

@@ -307,15 +307,27 @@ export function ConversationDetail({
               ))}
             </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => reprocess.mutate()}
-            disabled={reprocess.isPending}
-          >
-            {reprocess.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-            Reprocesar reserva
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {conversation.linked_customer_id ? (
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  to="/admin/clientes/$customerId"
+                  params={{ customerId: conversation.linked_customer_id }}
+                >
+                  Ver cliente
+                </Link>
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => reprocess.mutate()}
+              disabled={reprocess.isPending}
+            >
+              {reprocess.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+              Reprocesar reserva
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
