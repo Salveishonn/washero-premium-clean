@@ -1,11 +1,15 @@
 import { buildBookingRebookDefaults, type BookingCreateDefaults } from "@/lib/booking-rebook";
 import {
   deriveCustomerCrm,
+  elapsedCalendarDays,
+  getCompletedWashEffectiveDate,
   relationshipLabels,
   type CustomerHistoryBooking,
   type CustomerOperationSnapshot,
   type DerivedCompletedWash,
 } from "@/lib/admin-customer-detail";
+
+export { argentinaCalendarIso, elapsedCalendarDays } from "@/lib/admin-customer-detail";
 
 /**
  * Para recuperar is an elapsed-time work queue, not a prediction.
@@ -73,31 +77,9 @@ export type RetentionQueueSummary = {
 
 const RECOVER_FROM_DAY = 21;
 
-export function argentinaCalendarIso(timestamp: string): string | null {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
-}
-
-/** Calendar date of the latest completed wash in Buenos Aires. */
+/** Calendar date of a completed wash. Same rule as the dossier. */
 export function lastCompletedWashDate(wash: DerivedCompletedWash): string {
-  const stamp =
-    wash.operation?.wash_completed_at ||
-    wash.operation?.closed_at ||
-    wash.operation?.phase_changed_at;
-  if (stamp) {
-    const local = argentinaCalendarIso(stamp);
-    if (local) return local;
-  }
-  return wash.booking.scheduled_date;
-}
-
-export function elapsedCalendarDays(todayIso: string, earlierIso: string): number {
-  const utcDay = (iso: string) => {
-    const [year, month, day] = iso.split("-").map(Number);
-    return Date.UTC(year, (month ?? 1) - 1, day ?? 1);
-  };
-  return Math.round((utcDay(todayIso) - utcDay(earlierIso)) / 86_400_000);
+  return getCompletedWashEffectiveDate(wash.booking, wash.operation);
 }
 
 export function getRetentionBucket(daysSinceLastCompletedWash: number): RetentionBucket {

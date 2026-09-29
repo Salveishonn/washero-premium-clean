@@ -156,6 +156,65 @@ export function todayArgentinaIso(now = new Date()): string {
   return now.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 }
 
+/** Calendar day of an instant in Buenos Aires. Date-only strings are not passed here. */
+export function argentinaCalendarIso(timestamp: string): string | null {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
+}
+
+export function elapsedCalendarDays(todayIso: string, earlierIso: string): number {
+  const utcDay = (iso: string) => {
+    const [year, month, day] = iso.split("-").map(Number);
+    return Date.UTC(year, (month ?? 1) - 1, day ?? 1);
+  };
+  return Math.round((utcDay(todayIso) - utcDay(earlierIso)) / 86_400_000);
+}
+
+/**
+ * When the completed wash counts for CRM, retention, and repeat spacing.
+ *
+ * Completion eligibility is separate: phase wash_completed / closed, or the
+ * legacy completed booking with no operation row.
+ *
+ * The occurrence date is wash_completed_at when that actual-event timestamp
+ * exists. Historical rows often have a null wash_completed_at because the
+ * operation was backfilled later. Those use the booking scheduled_date, which
+ * is already a Buenos Aires service day and must not be shifted through UTC.
+ *
+ * closed_at is not an occurrence date. The operations transition API stamps
+ * wash_completed_at when a wash finishes and never writes closed_at, so that
+ * column is workflow closure, not the service itself.
+ *
+ * phase_changed_at is when the phase row last changed, including migrations.
+ * It stays on the operational timeline and is not a wash date.
+ */
+export function getCompletedWashEffectiveDate(
+  booking: Pick<CustomerHistoryBooking, "scheduled_date">,
+  operation: Pick<CustomerOperationSnapshot, "wash_completed_at"> | null | undefined,
+): string {
+  const stamp = operation?.wash_completed_at?.trim();
+  if (stamp) {
+    const local = argentinaCalendarIso(stamp);
+    if (local) return local;
+  }
+  return booking.scheduled_date;
+}
+
+/** Day gaps between effective wash dates, oldest first. Not a fitted interval. */
+export function repeatIntervalsFromCompletedWashes(
+  washes: Array<Pick<DerivedCompletedWash, "booking" | "operation">>,
+): number[] {
+  const dates = washes
+    .map((wash) => getCompletedWashEffectiveDate(wash.booking, wash.operation))
+    .sort();
+  const gaps: number[] = [];
+  for (let index = 1; index < dates.length; index += 1) {
+    gaps.push(elapsedCalendarDays(dates[index], dates[index - 1]));
+  }
+  return gaps;
+}
+
 export function customerSinceIso(createdAt: string): string {
   const date = new Date(createdAt);
   if (Number.isNaN(date.getTime())) return createdAt.slice(0, 10);
@@ -230,16 +289,19 @@ export function isCompletedWash(
   return !phase && booking.booking_status === "completed";
 }
 
+/**
+ * Instant used when a timeline needs a clock.
+ * A real wash_completed_at is kept. The scheduled-date fallback is noon UTC,
+ * which is 09:00 in Buenos Aires and stays on that service calendar day.
+ * closed_at and phase_changed_at are not occurrence clocks.
+ */
 export function completionTimestamp(
   booking: Pick<CustomerHistoryBooking, "scheduled_date">,
-  operation: CustomerOperationSnapshot | null | undefined,
+  operation: Pick<CustomerOperationSnapshot, "wash_completed_at"> | null | undefined,
 ): string {
-  return (
-    operation?.wash_completed_at ||
-    operation?.closed_at ||
-    operation?.phase_changed_at ||
-    `${booking.scheduled_date}T12:00:00`
-  );
+  const stamp = operation?.wash_completed_at?.trim();
+  if (stamp && argentinaCalendarIso(stamp)) return stamp;
+  return `${booking.scheduled_date}T12:00:00.000Z`;
 }
 
 export function isUpcomingActiveBooking(
@@ -332,10 +394,16 @@ export function deriveCustomerCrm(input: {
       return {
         booking,
         operation,
-        completedAt: completionTimestamp(booking, operation),
+        completedAt: getCompletedWashEffectiveDate(booking, operation),
       };
     })
-    .sort((a, b) => (a.completedAt < b.completedAt ? 1 : a.completedAt > b.completedAt ? -1 : 0));
+    .sort((a, b) => {
+      if (a.completedAt !== b.completedAt) return a.completedAt < b.completedAt ? 1 : -1;
+      const timeA = a.booking.scheduled_time || "";
+      const timeB = b.booking.scheduled_time || "";
+      if (timeA !== timeB) return timeA < timeB ? 1 : -1;
+      return a.booking.id < b.booking.id ? -1 : a.booking.id > b.booking.id ? 1 : 0;
+    });
 
   const upcomingCandidates = input.bookings
     .filter((booking) => isUpcomingActiveBooking(booking, operationByBooking.get(booking.id), todayIso))

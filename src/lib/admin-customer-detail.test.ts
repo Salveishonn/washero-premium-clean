@@ -3,14 +3,17 @@ import { parseArgentinaMobile } from "./phone";
 import {
   buildCustomerActivity,
   deriveCustomerCrm,
+  getCompletedWashEffectiveDate,
   isCompletedWash,
   isUpcomingActiveBooking,
   mensajesQueryForPhone,
   planCustomerCommunicationLookup,
+  repeatIntervalsFromCompletedWashes,
   summarizeCommunicationText,
   type CustomerHistoryBooking,
   type CustomerOperationSnapshot,
 } from "./admin-customer-detail";
+import { getCustomerRetention } from "./admin-customer-retention";
 
 const TODAY = "2026-09-29";
 
@@ -186,6 +189,123 @@ describe("customer completed wash derivation", () => {
     expect(crm.pattern.service).toBe("Completo");
     expect(crm.pattern.vehicle).toBe("SUV");
     expect(crm.pattern.location).toBe("Vicente López");
+  });
+
+  it("ignores a backfilled phase change and keeps the scheduled service date", () => {
+    const row = booking({
+      id: "legacy",
+      booking_status: "completed",
+      scheduled_date: "2026-09-09",
+      scheduled_time: "14:00:00",
+    });
+    const op = operation({
+      booking_id: row.id,
+      phase: "wash_completed",
+      wash_completed_at: null,
+      closed_at: null,
+      phase_changed_at: "2026-09-22T18:00:00.000Z",
+    });
+    expect(isCompletedWash(row, op, TODAY)).toBe(true);
+    expect(getCompletedWashEffectiveDate(row, op)).toBe("2026-09-09");
+  });
+
+  it("lets a real wash_completed_at win over the scheduled day in Buenos Aires", () => {
+    const row = booking({
+      id: "stamped",
+      booking_status: "completed",
+      scheduled_date: "2026-09-09",
+    });
+    const op = operation({
+      booking_id: row.id,
+      phase: "wash_completed",
+      wash_completed_at: "2026-09-10T01:15:00-03:00",
+      phase_changed_at: "2026-09-22T18:00:00.000Z",
+    });
+    expect(getCompletedWashEffectiveDate(row, op)).toBe("2026-09-10");
+  });
+
+  it("uses the scheduled service date for a closed row with no wash timestamp", () => {
+    const row = booking({
+      id: "closed-legacy",
+      booking_status: "completed",
+      scheduled_date: "2026-08-25",
+    });
+    const op = operation({
+      booking_id: row.id,
+      phase: "closed",
+      wash_completed_at: null,
+      closed_at: "2026-09-22T18:00:00.000Z",
+      phase_changed_at: "2026-09-22T18:00:00.000Z",
+    });
+    expect(isCompletedWash(row, op, TODAY)).toBe(true);
+    expect(getCompletedWashEffectiveDate(row, op)).toBe("2026-08-25");
+  });
+
+  it("orders two backfilled washes by service date, not the shared phase-change day", () => {
+    const earlier = booking({
+      id: "aug",
+      booking_status: "completed",
+      scheduled_date: "2026-09-01",
+      scheduled_time: "10:00:00",
+    });
+    const later = booking({
+      id: "sep",
+      booking_status: "completed",
+      scheduled_date: "2026-09-15",
+      scheduled_time: "09:00:00",
+    });
+    const operations = [earlier, later].map((row) =>
+      operation({
+        booking_id: row.id,
+        phase: "wash_completed",
+        phase_changed_at: "2026-09-22T18:00:00.000Z",
+      }),
+    );
+    const crm = deriveCustomerCrm({ bookings: [earlier, later], operations, todayIso: TODAY });
+    expect(crm.lastWash?.booking.id).toBe("sep");
+    expect(crm.lastWash?.completedAt).toBe("2026-09-15");
+    expect(crm.completedWashes.map((wash) => wash.booking.id)).toEqual(["sep", "aug"]);
+    expect(repeatIntervalsFromCompletedWashes(crm.completedWashes)).toEqual([14]);
+  });
+
+  it("agrees with retention on the same booking and effective date", () => {
+    const wash = booking({
+      id: "observed",
+      booking_status: "completed",
+      scheduled_date: "2026-09-09",
+    });
+    const cancelled = booking({
+      id: "cancelled-later",
+      booking_status: "cancelled",
+      scheduled_date: "2026-09-19",
+    });
+    const operations = [
+      operation({
+        booking_id: wash.id,
+        phase: "wash_completed",
+        phase_changed_at: "2026-09-22T18:00:00.000Z",
+      }),
+      operation({
+        booking_id: cancelled.id,
+        phase: "cancelled",
+        phase_changed_at: "2026-09-28T12:00:00.000Z",
+      }),
+    ];
+    const crm = deriveCustomerCrm({ bookings: [wash, cancelled], operations, todayIso: TODAY });
+    const retention = getCustomerRetention({
+      customerId: wash.customer_id ?? "",
+      bookings: [wash, cancelled],
+      operations,
+      todayIso: TODAY,
+    });
+    expect(crm.lastWash?.booking.id).toBe("observed");
+    expect(retention.lastWash?.booking.id).toBe(crm.lastWash?.booking.id);
+    expect(retention.lastWashDate).toBe("2026-09-09");
+    expect(retention.lastWashDate).toBe(
+      getCompletedWashEffectiveDate(crm.lastWash!.booking, crm.lastWash!.operation),
+    );
+    expect(retention.daysSinceLastCompletedWash).toBe(20);
+    expect(retention.eligibleForQueue).toBe(false);
   });
 
   it("ignores needs_review as a completed wash", () => {

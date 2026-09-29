@@ -184,6 +184,30 @@ describe("admin customer dossier", () => {
     expect(screen.getAllByRole("link", { name: "Ver reserva" }).length).toBeGreaterThan(0);
   });
 
+  it("shows the scheduled service date when the operation phase was backfilled", () => {
+    renderDossier(
+      [
+        booking({
+          id: "legacy",
+          scheduled_date: "2026-09-09",
+          booking_status: "completed",
+        }),
+      ],
+      [
+        {
+          booking_id: "legacy",
+          phase: "wash_completed",
+          wash_completed_at: null,
+          closed_at: null,
+          cancelled_at: null,
+          phase_changed_at: "2026-09-22T18:00:00.000Z",
+        },
+      ],
+    );
+    expect(screen.getAllByText("09/09/2026").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("22/09/2026")).not.toBeInTheDocument();
+  });
+
   it("does not offer rebook for a future booking", () => {
     renderDossier([
       booking({

@@ -222,6 +222,49 @@ describe("customer retention queue", () => {
     expect(defaults).not.toHaveProperty("booking_status");
   });
 
+  it("keeps bucket boundaries on the service date when the phase was backfilled", () => {
+    for (const days of [20, 21, 45, 46, 90, 91]) {
+      const result = assess(
+        [booking({ id: "b1", scheduled_date: daysBefore(days) })],
+        [operation("b1", "wash_completed", { phase_changed_at: "2026-09-22T18:00:00.000Z", closed_at: "2026-09-22T18:00:00.000Z" })],
+      );
+      expect(result.lastWashDate).toBe(daysBefore(days));
+      expect(result.daysSinceLastCompletedWash).toBe(days);
+      expect(result.eligibleForQueue).toBe(days >= 21);
+      if (days >= 21) expect(result.bucket).toBe(getRetentionBucket(days));
+      if (days === 20) expect(result.bucket).toBe("recent");
+    }
+  });
+
+  it("does not let a later cancellation reset the wash age", () => {
+    const result = assess(
+      [
+        booking({ id: "wash", scheduled_date: daysBefore(30) }),
+        booking({ id: "late", scheduled_date: daysBefore(10), booking_status: "cancelled" }),
+      ],
+      [
+        operation("wash", "wash_completed", { phase_changed_at: "2026-09-28T12:00:00.000Z" }),
+        operation("late", "cancelled", { phase_changed_at: "2026-09-28T15:00:00.000Z" }),
+      ],
+    );
+    expect(result.lastWashDate).toBe(daysBefore(30));
+    expect(result.daysSinceLastCompletedWash).toBe(30);
+    expect(result.eligibleForQueue).toBe(true);
+  });
+
+  it("still excludes a future active booking after the date fix", () => {
+    const result = assess(
+      [
+        booking({ id: "wash", scheduled_date: daysBefore(30) }),
+        booking({ id: "next", scheduled_date: "2026-10-06", booking_status: "confirmed" }),
+      ],
+      [operation("wash", "wash_completed", { phase_changed_at: "2026-09-22T18:00:00.000Z" })],
+    );
+    expect(result.daysSinceLastCompletedWash).toBe(30);
+    expect(result.suppressedByFutureBooking).toBe(true);
+    expect(result.eligibleForQueue).toBe(false);
+  });
+
   it("does not treat in-progress, proof, or incident phases as a completed wash", () => {
     for (const phase of ["en_route", "wash_in_progress", "proof_required", "incident"]) {
       const result = assess(
