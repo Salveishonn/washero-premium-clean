@@ -23,6 +23,11 @@ import { CustomerForm } from "@/components/admin/CustomerForm";
 import { AdminCreateBookingDialog } from "@/components/admin/bookings";
 import { CustomerRetentionQueue } from "@/components/admin/customer-retention/CustomerRetentionQueue";
 import {
+  fetchRetentionPreferences,
+  retentionPreferenceQueryKey,
+} from "@/lib/admin-customer-communication-preferences";
+import { duplicateRetentionPhoneCustomerIds } from "@/lib/customer-communication-preferences";
+import {
   todayArgentinaIso,
   type CustomerHistoryBooking,
   type CustomerOperationSnapshot,
@@ -344,6 +349,26 @@ function ClientesPage() {
     () => summarizeRetentionQueue(retentionQueue),
     [retentionQueue],
   );
+  const retentionCustomerIds = useMemo(
+    () => retentionQueue.map((row) => row.customerId),
+    [retentionQueue],
+  );
+  const retentionPreferencesQuery = useQuery({
+    queryKey: retentionPreferenceQueryKey(retentionCustomerIds),
+    queryFn: () => fetchRetentionPreferences(retentionCustomerIds),
+    enabled: view === "recuperar" && retentionCustomerIds.length > 0,
+  });
+  const retentionPreferencesByCustomerId = useMemo(() => {
+    const byId: Record<string, (typeof retentionPreferencesQuery.data)[number]> = {};
+    for (const preference of retentionPreferencesQuery.data ?? []) {
+      byId[preference.customer_id] = preference;
+    }
+    return byId;
+  }, [retentionPreferencesQuery.data]);
+  const duplicatePhoneCustomerIds = useMemo(
+    () => duplicateRetentionPhoneCustomerIds(customersQuery.data ?? []),
+    [customersQuery.data],
+  );
 
   // Auto-link all bookings by phone
   const autoLinkAll = useMutation({
@@ -504,6 +529,11 @@ function ClientesPage() {
           rows={retentionFiltered}
           summary={retentionSummary}
           searchActive={search.trim().length > 0}
+          consent={{
+            ready: retentionPreferencesQuery.isSuccess,
+            preferencesByCustomerId: retentionPreferencesByCustomerId,
+            duplicateCustomerIds: duplicatePhoneCustomerIds,
+          }}
           onOpenCustomer={openCustomer}
           onRebook={setRebook}
         />
