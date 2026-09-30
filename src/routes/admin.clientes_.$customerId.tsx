@@ -5,12 +5,22 @@ import { Loader2 } from "lucide-react";
 
 import { AdminCreateBookingDialog } from "@/components/admin/bookings";
 import { AdminCustomerDossier } from "@/components/admin/customer-detail/AdminCustomerDossier";
+import { RetentionConsentControl } from "@/components/admin/customer-retention/RetentionConsentControl";
 import type { BookingCreateDefaults } from "@/lib/booking-rebook";
 import { CustomerForm } from "@/components/admin/CustomerForm";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchActiveSubscriptionForCustomer } from "@/lib/subscriptions";
+import {
+  fetchCustomerPhoneIndex,
+  fetchRetentionPreference,
+  retentionPreferenceCustomerQueryKey,
+} from "@/lib/admin-customer-communication-preferences";
+import {
+  deriveRetentionConsentStatus,
+  duplicateRetentionPhoneCustomerIds,
+} from "@/lib/customer-communication-preferences";
 import {
   CUSTOMER_DOSSIER_STALE_MS,
   adminCustomerQueryKey,
@@ -99,6 +109,16 @@ function CustomerDossierLoader({
     queryFn: () => fetchActiveSubscriptionForCustomer(customerId),
     staleTime: CUSTOMER_DOSSIER_STALE_MS,
   });
+  const preferenceQuery = useQuery({
+    queryKey: retentionPreferenceCustomerQueryKey(customerId),
+    queryFn: () => fetchRetentionPreference(customerId),
+    staleTime: CUSTOMER_DOSSIER_STALE_MS,
+  });
+  const phoneIndexQuery = useQuery({
+    queryKey: ["admin", "customers", "phone-index"],
+    queryFn: fetchCustomerPhoneIndex,
+    staleTime: CUSTOMER_DOSSIER_STALE_MS,
+  });
 
   if (customerQuery.isLoading || bookingsQuery.isLoading) {
     return (
@@ -161,6 +181,23 @@ function CustomerDossierLoader({
           </Button>
         </div>
       )}
+      <div className="mb-3">
+        <RetentionConsentControl
+          variant="card"
+          customerId={customerQuery.data.id}
+          customerName={customerQuery.data.full_name}
+          status={
+            preferenceQuery.isSuccess
+              ? deriveRetentionConsentStatus(preferenceQuery.data)
+              : "unknown"
+          }
+          preference={preferenceQuery.data}
+          duplicatePhone={duplicateRetentionPhoneCustomerIds(phoneIndexQuery.data ?? []).has(
+            customerQuery.data.id,
+          )}
+          ready={preferenceQuery.isSuccess}
+        />
+      </div>
       <AdminCustomerDossier
         customer={customerQuery.data}
         bookings={bookingsQuery.data ?? []}

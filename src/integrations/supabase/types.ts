@@ -1825,6 +1825,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      customer_communication_preferences: {
+        Row: {
+          channel: string;
+          created_at: string;
+          customer_id: string;
+          evidence_note: string;
+          id: string;
+          opted_in_at: string | null;
+          opted_out_at: string | null;
+          purpose: string;
+          recorded_by_admin_user_id: string;
+          source: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          channel: string;
+          created_at?: string;
+          customer_id: string;
+          evidence_note: string;
+          id?: string;
+          opted_in_at?: string | null;
+          opted_out_at?: string | null;
+          purpose: string;
+          recorded_by_admin_user_id: string;
+          source: string;
+          status: string;
+          updated_at?: string;
+        };
+        Update: {
+          channel?: string;
+          created_at?: string;
+          customer_id?: string;
+          evidence_note?: string;
+          id?: string;
+          opted_in_at?: string | null;
+          opted_out_at?: string | null;
+          purpose?: string;
+          recorded_by_admin_user_id?: string;
+          source?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "customer_communication_preferences_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "customer_communication_preferences_recorded_by_admin_user_id_fkey";
+            columns: ["recorded_by_admin_user_id"];
+            isOneToOne: false;
+            referencedRelation: "admin_users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       customer_subscriptions: {
         Row: {
           billing_day: number | null;

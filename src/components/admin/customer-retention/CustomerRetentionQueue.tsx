@@ -13,9 +13,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { RetentionConsentControl } from "@/components/admin/customer-retention/RetentionConsentControl";
+import type { CustomerCommunicationPreference } from "@/lib/admin-customer-communication-preferences";
 import { mensajesQueryForPhone } from "@/lib/admin-customer-detail";
 import type { BookingCreateDefaults } from "@/lib/booking-rebook";
 import type { CustomerRetentionRow, RetentionQueueSummary } from "@/lib/admin-customer-retention";
+import {
+  deriveRetentionConsentStatus,
+  type MarketingConsentStatus,
+} from "@/lib/customer-communication-preferences";
+
+export type RetentionQueueConsent = {
+  ready: boolean;
+  preferencesByCustomerId: Readonly<Record<string, CustomerCommunicationPreference | undefined>>;
+  duplicateCustomerIds: ReadonlySet<string>;
+};
 
 function SummaryTile({ label, value }: { label: string; value: number }) {
   return (
@@ -34,6 +46,31 @@ function Signal({ row }: { row: CustomerRetentionRow }) {
     return <Badge variant="secondary">Recurrente</Badge>;
   }
   return <span className="text-xs text-muted-foreground">—</span>;
+}
+
+function ConsentCell({
+  row,
+  consent,
+}: {
+  row: CustomerRetentionRow;
+  consent?: RetentionQueueConsent;
+}) {
+  if (!consent) return null;
+  const preference = consent.preferencesByCustomerId[row.customerId] ?? null;
+  const status: MarketingConsentStatus = consent.ready
+    ? deriveRetentionConsentStatus(preference)
+    : "unknown";
+  return (
+    <RetentionConsentControl
+      variant="compact"
+      customerId={row.customerId}
+      customerName={row.fullName}
+      status={status}
+      preference={preference}
+      duplicatePhone={consent.duplicateCustomerIds.has(row.customerId)}
+      ready={consent.ready}
+    />
+  );
 }
 
 function RowActions({
@@ -69,12 +106,14 @@ export function CustomerRetentionQueue({
   rows,
   summary,
   searchActive,
+  consent,
   onOpenCustomer,
   onRebook,
 }: {
   rows: CustomerRetentionRow[];
   summary: RetentionQueueSummary;
   searchActive: boolean;
+  consent?: RetentionQueueConsent;
   onOpenCustomer: (customerId: string) => void;
   onRebook: (defaults: BookingCreateDefaults) => void;
 }) {
@@ -111,6 +150,7 @@ export function CustomerRetentionQueue({
                     <TableHead>Último lavado</TableHead>
                     <TableHead>Servicio</TableHead>
                     <TableHead>Señal</TableHead>
+                    <TableHead>WhatsApp</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -151,6 +191,9 @@ export function CustomerRetentionQueue({
                       </TableCell>
                       <TableCell>
                         <Signal row={row} />
+                      </TableCell>
+                      <TableCell>
+                        <ConsentCell row={row} consent={consent} />
                       </TableCell>
                       <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                         <RowActions row={row} onRebook={onRebook} />
@@ -194,6 +237,7 @@ export function CustomerRetentionQueue({
                     {row.neighborhood ? ` · ${row.neighborhood}` : ""}
                   </div>
                   <Signal row={row} />
+                  <ConsentCell row={row} consent={consent} />
                   <div onClick={(event) => event.stopPropagation()}>
                     <RowActions row={row} onRebook={onRebook} />
                   </div>
