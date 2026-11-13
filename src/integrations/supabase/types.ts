@@ -1825,6 +1825,96 @@ export type Database = {
         };
         Relationships: [];
       };
+      discount_codes: {
+        Row: {
+          active: boolean;
+          code: string;
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          discount_type: string;
+          discount_value: number;
+          expires_on: string | null;
+          id: string;
+          max_redemptions: number | null;
+          revoked_at: string | null;
+          starts_on: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          code: string;
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          discount_type: string;
+          discount_value: number;
+          expires_on?: string | null;
+          id?: string;
+          max_redemptions?: number | null;
+          revoked_at?: string | null;
+          starts_on?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          code?: string;
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          discount_type?: string;
+          discount_value?: number;
+          expires_on?: string | null;
+          id?: string;
+          max_redemptions?: number | null;
+          revoked_at?: string | null;
+          starts_on?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      discount_code_redemptions: {
+        Row: {
+          amount: number;
+          booking_id: string;
+          code: string;
+          created_at: string;
+          discount_code_id: string;
+          id: string;
+        };
+        Insert: {
+          amount: number;
+          booking_id: string;
+          code: string;
+          created_at?: string;
+          discount_code_id: string;
+          id?: string;
+        };
+        Update: {
+          amount?: number;
+          booking_id?: string;
+          code?: string;
+          created_at?: string;
+          discount_code_id?: string;
+          id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "discount_code_redemptions_booking_id_fkey";
+            columns: ["booking_id"];
+            isOneToOne: true;
+            referencedRelation: "bookings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "discount_code_redemptions_discount_code_id_fkey";
+            columns: ["discount_code_id"];
+            isOneToOne: false;
+            referencedRelation: "discount_codes";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       customer_communication_preferences: {
         Row: {
           channel: string;

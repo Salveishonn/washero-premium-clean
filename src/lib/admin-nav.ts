@@ -61,6 +61,7 @@ export const ADMIN_NAV_HIDDEN_HREFS = [
   "/admin/leads-kipper",
   "/admin/mapa-demanda",
   "/admin/precios",
+  "/admin/codigos-descuento",
 ] as const;
 
 export function isAdminNavActive(to: string, pathname: string): boolean {
@@ -72,7 +73,9 @@ export function isAdminNavActive(to: string, pathname: string): boolean {
       pathname === "/admin/configuracion" ||
       pathname.startsWith("/admin/configuracion/") ||
       pathname === "/admin/precios" ||
-      pathname.startsWith("/admin/precios/")
+      pathname.startsWith("/admin/precios/") ||
+      pathname === "/admin/codigos-descuento" ||
+      pathname.startsWith("/admin/codigos-descuento/")
     );
   }
   return pathname === to || pathname.startsWith(`${to}/`);

@@ -23,6 +23,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DiscountCodePopup } from "@/components/DiscountCodePopup";
 import { supabase } from "@/integrations/supabase/client";
 import { formatPrice } from "@/lib/booking-badges";
 
@@ -91,6 +92,7 @@ function LandingPage() {
       <Faq />
       <FinalCta />
       <StickyMobileCta />
+      <DiscountCodePopup />
     </>
   );
 }

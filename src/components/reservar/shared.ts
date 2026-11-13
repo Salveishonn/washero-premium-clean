@@ -1,6 +1,17 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { parseArgentinaMobile } from "@/lib/phone";
+// Discount rules live next to booking-core so the form previews exactly what the server charges.
+import {
+  DISCOUNT_CODE_REJECTION_MESSAGES,
+  SECOND_UNIT_DISCOUNT_RATE,
+  computeDiscountCodeAmount,
+  describeDiscountCodeRule,
+  normalizeDiscountCode,
+  pickMultiUnitDiscountIndex,
+  type DiscountCodeRejection,
+  type DiscountCodeType,
+} from "../../../supabase/functions/_shared/booking-discounts";
 
 export const WHATSAPP_NUMBER = "5491176247835";
 export const WHATSAPP_URL = `https://wa.me/${WHATSAPP_NUMBER}`;
@@ -22,7 +33,58 @@ export const VEHICLE_CODE_TO_TYPE: Record<string, "Auto" | "SUV" | "Pick-up"> = 
   pickup: "Pick-up",
 };
 
-export const SECOND_UNIT_DISCOUNT_RATE = 0.2;
+export {
+  SECOND_UNIT_DISCOUNT_RATE,
+  computeDiscountCodeAmount,
+  describeDiscountCodeRule,
+  normalizeDiscountCode,
+  pickMultiUnitDiscountIndex,
+};
+
+export type AppliedDiscountCode = {
+  code: string;
+  discount_type: DiscountCodeType;
+  discount_value: number;
+};
+
+export type DiscountCodeCheck =
+  | { valid: true; code: AppliedDiscountCode }
+  | { valid: false; message: string };
+
+/** Asks the server whether a code can be used today. Throws on network/server failure. */
+export async function validateDiscountCode(rawCode: string): Promise<DiscountCodeCheck> {
+  const { data, error } = await supabase.functions.invoke("validate-discount-code", {
+    body: { code: normalizeDiscountCode(rawCode) },
+  });
+  if (error) throw error;
+  const res = data as {
+    ok?: boolean;
+    valid?: boolean;
+    code?: string;
+    discount_type?: DiscountCodeType;
+    discount_value?: number;
+    reason?: DiscountCodeRejection;
+    customer_message?: string;
+  } | null;
+  if (!res?.ok) throw new Error("discount_code_validation_failed");
+  if (res.valid && res.code && res.discount_type) {
+    return {
+      valid: true,
+      code: {
+        code: res.code,
+        discount_type: res.discount_type,
+        discount_value: Number(res.discount_value) || 0,
+      },
+    };
+  }
+  return {
+    valid: false,
+    message:
+      res.customer_message ??
+      (res.reason ? DISCOUNT_CODE_REJECTION_MESSAGES[res.reason] : undefined) ??
+      "Ese código no es válido.",
+  };
+}
 
 export type AddressMode = "street" | "private_neighborhood";
 
@@ -116,6 +178,8 @@ export type FormState = {
   vehicle_code: string;
   second_vehicle_enabled: boolean;
   second_vehicle_code: string;
+  /** Service for the second car; chosen independently from the first car's service. */
+  second_service_id: string;
   extras: string[];
   address: string;
   address_mode: AddressMode;
@@ -136,6 +200,7 @@ export const INITIAL_FORM: FormState = {
   vehicle_code: "",
   second_vehicle_enabled: false,
   second_vehicle_code: "",
+  second_service_id: "",
   extras: [],
   address: "",
   address_mode: "street",
@@ -175,6 +240,30 @@ export function computeUnitPricing(input: {
   };
 }
 
+/**
+ * Prices a two-wash booking: both units at full price, then 20% OFF on the cheapest one
+ * (same rule as booking-core). `discountedUnit` tells the UI which car got the discount.
+ */
+export function applyMultiUnitDiscount(
+  first: UnitPricing,
+  second: UnitPricing | null,
+): { first: UnitPricing; second: UnitPricing | null; discountedUnit: 1 | 2 | null } {
+  if (!second) return { first, second: null, discountedUnit: null };
+  const index = pickMultiUnitDiscountIndex([first.subtotal, second.subtotal]);
+  const withDiscount = (unit: UnitPricing): UnitPricing => {
+    const discountAmount = Math.round(unit.subtotal * SECOND_UNIT_DISCOUNT_RATE);
+    return {
+      ...unit,
+      discountRate: SECOND_UNIT_DISCOUNT_RATE,
+      discountAmount,
+      total: unit.subtotal - discountAmount,
+    };
+  };
+  return index === 0
+    ? { first: withDiscount(first), second, discountedUnit: 1 }
+    : { first, second: withDiscount(second), discountedUnit: 2 };
+}
+
 export function buildPrivateNeighborhoodDisplayAddress(name: string, lot: string) {
   const trimmedLot = lot.trim();
   return trimmedLot ? `Barrio ${name}, lote ${trimmedLot}` : `Barrio ${name}`;
@@ -184,6 +273,8 @@ export function buildBookingUnitsPayload(opts: {
   firstVehicleType: string;
   secondVehicleType?: string | null;
   serviceId: string;
+  /** Defaults to the first car's service when omitted. */
+  secondServiceId?: string | null;
   selectedExtras: string[];
   secondVehicleEnabled: boolean;
 }): BookingUnitPayload[] {
@@ -197,7 +288,7 @@ export function buildBookingUnitsPayload(opts: {
   if (opts.secondVehicleEnabled && opts.secondVehicleType) {
     units.push({
       vehicle_type: opts.secondVehicleType,
-      service_id: opts.serviceId,
+      service_id: opts.secondServiceId || opts.serviceId,
       selected_extras: [],
     });
   }

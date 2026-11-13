@@ -13,6 +13,8 @@ import {
   MessageCircle,
   ShieldAlert,
   Sparkles,
+  Tag,
+  X,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -33,14 +35,16 @@ import {
 import {
   INITIAL_FORM,
   PAYMENTS,
-  SECOND_UNIT_DISCOUNT_RATE,
   VEHICLE_CODE_TO_TYPE,
   WHATSAPP_URL,
+  applyMultiUnitDiscount,
   buildBookingUnitsPayload,
   buildPrivateNeighborhoodDisplayAddress,
+  computeDiscountCodeAmount,
   computeUnitPricing,
   contactSchema,
   coverageZonesQueryOptions,
+  describeDiscountCodeRule,
   fetchLogisticAvailability,
   fetchPricing,
   fetchPrivateNeighborhoods,
@@ -53,6 +57,8 @@ import {
   isoFromDate,
   normalizedContactPhone,
   sortCoverageZoneNames,
+  validateDiscountCode,
+  type AppliedDiscountCode,
   type FormState,
   type LogisticSlot,
   type PrivateNeighborhood,
@@ -88,8 +94,19 @@ function normalizeSearchText(value: string) {
     .trim();
 }
 
-export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribution }) {
+export function AddressFirstFlow({
+  attribution,
+  initialDiscountCode,
+}: {
+  attribution?: BookingAttribution;
+  /** Code from the `?codigo=` link; validated on load so the discount shows from the start. */
+  initialDiscountCode?: string;
+}) {
   const navigate = useNavigate();
+  const [discountInput, setDiscountInput] = useState(initialDiscountCode ?? "");
+  const [appliedCode, setAppliedCode] = useState<AppliedDiscountCode | null>(null);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [discountChecking, setDiscountChecking] = useState(false);
   const [step, setStep] = useState(0);
   const [place, setPlace] = useState<PlaceSelection | null>(null);
   const [coverage, setCoverage] = useState<CoverageState>({ kind: "idle" });
@@ -119,6 +136,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
   const [privateNeighborhoodSearch, setPrivateNeighborhoodSearch] = useState("");
 
   const selectedService = services.data?.find((s) => s.id === form.service_id);
+  const selectedSecondService = services.data?.find((s) => s.id === form.second_service_id);
   const selectedPrivateNeighborhood = useMemo(
     () => privateNeighborhoods.data?.find((row) => row.id === form.private_neighborhood_id) ?? null,
     [privateNeighborhoods.data, form.private_neighborhood_id],
@@ -165,36 +183,55 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
     [pricing.data, form.extras],
   );
 
-  const firstUnitPricing = useMemo(
-    () =>
-      computeUnitPricing({
-        serviceBasePrice: selectedService?.base_price ?? 0,
-        serviceDurationMinutes: selectedService?.duration_minutes ?? 0,
-        vehicleAmount: selectedVehicle?.amount ?? 0,
-        vehicleDurationMinutes: selectedVehicle?.duration_minutes ?? 0,
-        extraItems: selectedExtraItems,
-      }),
-    [selectedExtraItems, selectedService, selectedVehicle],
-  );
-
-  const secondUnitPricing = useMemo(() => {
-    if (!form.second_vehicle_enabled) return null;
-    return computeUnitPricing({
+  // Each car is priced on its own service; the 20% lands on whichever wash is cheaper.
+  const {
+    first: firstUnitPricing,
+    second: secondUnitPricing,
+    discountedUnit,
+  } = useMemo(() => {
+    const first = computeUnitPricing({
       serviceBasePrice: selectedService?.base_price ?? 0,
       serviceDurationMinutes: selectedService?.duration_minutes ?? 0,
-      vehicleAmount: selectedSecondVehicle?.amount ?? 0,
-      vehicleDurationMinutes: selectedSecondVehicle?.duration_minutes ?? 0,
-      extraItems: [],
-      discountRate: SECOND_UNIT_DISCOUNT_RATE,
+      vehicleAmount: selectedVehicle?.amount ?? 0,
+      vehicleDurationMinutes: selectedVehicle?.duration_minutes ?? 0,
+      extraItems: selectedExtraItems,
     });
-  }, [form.second_vehicle_enabled, selectedSecondVehicle, selectedService]);
+    const second = form.second_vehicle_enabled
+      ? computeUnitPricing({
+          serviceBasePrice: selectedSecondService?.base_price ?? 0,
+          serviceDurationMinutes: selectedSecondService?.duration_minutes ?? 0,
+          vehicleAmount: selectedSecondVehicle?.amount ?? 0,
+          vehicleDurationMinutes: selectedSecondVehicle?.duration_minutes ?? 0,
+          extraItems: [],
+        })
+      : null;
+    return applyMultiUnitDiscount(first, second);
+  }, [
+    form.second_vehicle_enabled,
+    selectedExtraItems,
+    selectedSecondService,
+    selectedSecondVehicle,
+    selectedService,
+    selectedVehicle,
+  ]);
 
   const estimatedDurationMinutes =
     firstUnitPricing.durationMinutes + (secondUnitPricing?.durationMinutes ?? 0);
   const subtotalBeforeDiscounts = firstUnitPricing.subtotal + (secondUnitPricing?.subtotal ?? 0);
-  const discountTotal = secondUnitPricing?.discountAmount ?? 0;
-  const total = firstUnitPricing.total + (secondUnitPricing?.total ?? 0);
+  const multiUnitDiscount =
+    firstUnitPricing.discountAmount + (secondUnitPricing?.discountAmount ?? 0);
+  const totalBeforeCode = firstUnitPricing.total + (secondUnitPricing?.total ?? 0);
+  const codeDiscount = appliedCode ? computeDiscountCodeAmount(appliedCode, totalBeforeCode) : 0;
+  const total = totalBeforeCode - codeDiscount;
   const vehicleCount = form.second_vehicle_enabled ? 2 : 1;
+  const multiUnitDiscountLabel =
+    discountedUnit === 1 ? "20% OFF en el primer auto" : "20% OFF en el segundo auto";
+  const servicesSummary =
+    form.second_vehicle_enabled && selectedSecondService
+      ? selectedSecondService.id === selectedService?.id
+        ? `2 × ${selectedService?.name ?? ""}`
+        : `${selectedService?.name ?? ""} + ${selectedSecondService.name}`
+      : (selectedService?.name ?? "");
 
   const resolvedLocation = useMemo((): ResolvedLocation | null => {
     if (coverage.kind !== "ok") return null;
@@ -243,12 +280,14 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       firstVehicleType,
       secondVehicleType,
       serviceId: form.service_id,
+      secondServiceId: form.second_service_id,
       selectedExtras: form.extras,
       secondVehicleEnabled: form.second_vehicle_enabled,
     });
   }, [
     firstVehicleType,
     form.extras,
+    form.second_service_id,
     form.second_vehicle_enabled,
     form.service_id,
     secondVehicleType,
@@ -323,6 +362,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
     form.vehicle_code,
     form.second_vehicle_enabled,
     form.second_vehicle_code,
+    form.second_service_id,
     form.extras,
   ]);
 
@@ -331,6 +371,52 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       setForm((f) => ({ ...f, second_vehicle_code: f.vehicle_code }));
     }
   }, [form.second_vehicle_enabled, form.second_vehicle_code, form.vehicle_code]);
+
+  // The second car starts on the same service as the first one, only as a default:
+  // from there each car's service is picked on its own.
+  useEffect(() => {
+    if (form.second_vehicle_enabled && !form.second_service_id && form.service_id) {
+      setForm((f) => ({ ...f, second_service_id: f.service_id }));
+    }
+  }, [form.second_vehicle_enabled, form.second_service_id, form.service_id]);
+
+  async function applyDiscountCode(raw: string) {
+    const code = raw.trim();
+    if (!code) {
+      setDiscountError("Ingresá tu código.");
+      return;
+    }
+    setDiscountChecking(true);
+    setDiscountError(null);
+    try {
+      const check = await validateDiscountCode(code);
+      if (check.valid) {
+        setAppliedCode(check.code);
+        setDiscountInput(check.code.code);
+      } else {
+        setAppliedCode(null);
+        setDiscountError(check.message);
+      }
+    } catch (err) {
+      console.error("[Reservar][validate-discount-code]", err);
+      setAppliedCode(null);
+      setDiscountError("No pudimos validar el código. Probá de nuevo.");
+    } finally {
+      setDiscountChecking(false);
+    }
+  }
+
+  function removeDiscountCode() {
+    setAppliedCode(null);
+    setDiscountInput("");
+    setDiscountError(null);
+  }
+
+  useEffect(() => {
+    if (initialDiscountCode?.trim()) void applyDiscountCode(initialDiscountCode);
+    // Only on first load: later edits go through the "Aplicar" button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (form.address_mode !== "street") return;
@@ -631,6 +717,10 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       toast.error("Elegí el tamaño del segundo auto.");
       return;
     }
+    if (form.second_vehicle_enabled && !form.second_service_id) {
+      toast.error("Elegí el lavado del segundo auto.");
+      return;
+    }
     trackGoogleAdsEvent("booking_service_selected", {
       service_id: form.service_id,
       flow: "address_first",
@@ -663,6 +753,9 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
     if (!form.vehicle_code) errs.vehicle_code = "Elegí el tamaño de tu vehículo";
     if (form.second_vehicle_enabled && !form.second_vehicle_code) {
       errs.second_vehicle_code = "Elegí el tamaño del segundo auto";
+    }
+    if (form.second_vehicle_enabled && !form.second_service_id) {
+      errs.second_service_id = "Elegí el lavado del segundo auto";
     }
     if (!pick) errs.slot = "Elegí un horario";
     if (Object.keys(errs).length > 0) {
@@ -720,6 +813,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
       notes: noteParts.join(" · ") || null,
       selected_extras: form.extras,
       booking_units: bookingUnitsPayload,
+      discount_code: appliedCode?.code ?? null,
       marketing_source: attribution?.marketing_source ?? null,
       marketing_medium: attribution?.marketing_medium ?? null,
       marketing_campaign: attribution?.marketing_campaign ?? null,
@@ -752,6 +846,14 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
     if (!bookingId) {
       setSubmitting(false);
       const status = res?.status ?? "";
+      if (status === "invalid_discount_code") {
+        // The code stopped being usable between "Aplicar" and confirming: nothing was booked.
+        const message = res?.customer_message ?? "Ese código ya no es válido.";
+        setAppliedCode(null);
+        setDiscountError(message);
+        toast.error(`${message} Quitamos el descuento: revisá el total y confirmá de nuevo.`);
+        return;
+      }
       const friendly =
         status === "outside_coverage"
           ? "Esa dirección está fuera de nuestra cobertura actual."
@@ -1022,7 +1124,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
             </p>
           </div>
 
-          <FormSection title="Servicio">
+          <FormSection title={form.second_vehicle_enabled ? "Lavado del primer auto" : "Servicio"}>
             {services.isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -1079,7 +1181,10 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
           <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
             <div>
               <h3 className="text-sm font-semibold">¿Querés sumar otro auto en la misma visita?</h3>
-              <p className="text-xs text-muted-foreground mt-1">La segunda unidad tiene 20% OFF.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Elegí el lavado que quieras para cada auto: el más económico de los dos tiene 20%
+                OFF.
+              </p>
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <Checkbox
@@ -1093,6 +1198,35 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
                 <p className="text-xs text-muted-foreground">
                   Mismo día, mismo horario y misma dirección que el primer auto.
                 </p>
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold">Lavado del segundo auto</h4>
+                  <div className="space-y-2">
+                    {(services.data ?? []).map((s) => (
+                      <button
+                        key={`second-service-${s.id}`}
+                        type="button"
+                        aria-pressed={form.second_service_id === s.id}
+                        onClick={() => update("second_service_id", s.id)}
+                        className={cn(
+                          "w-full rounded-xl border bg-background/80 p-3 text-left",
+                          form.second_service_id === s.id
+                            ? "border-primary border-2 bg-primary/5"
+                            : "border-border",
+                        )}
+                      >
+                        <div className="flex justify-between gap-2">
+                          <span className="text-sm font-semibold">{s.name}</span>
+                          <span className="text-sm">{formatARS(s.base_price)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{s.duration_minutes} min</p>
+                      </button>
+                    ))}
+                  </div>
+                  {errors.second_service_id && (
+                    <p className="mt-1 text-xs text-destructive">{errors.second_service_id}</p>
+                  )}
+                </div>
+                <h4 className="text-xs font-semibold">Tamaño del segundo auto</h4>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {vehicles.map((v) => (
                     <button
@@ -1120,17 +1254,23 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
                 {secondUnitPricing && (
                   <div className="rounded-lg border bg-background/80 p-3 text-xs space-y-1">
                     <div className="flex justify-between">
-                      <span>Subtotal segunda unidad</span>
+                      <span>Primer auto{selectedService ? ` · ${selectedService.name}` : ""}</span>
+                      <span>{formatARS(firstUnitPricing.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>
+                        Segundo auto
+                        {selectedSecondService ? ` · ${selectedSecondService.name}` : ""}
+                      </span>
                       <span>{formatARS(secondUnitPricing.subtotal)}</span>
                     </div>
-                    <div className="flex justify-between text-emerald-700">
-                      <span>Segunda unidad 20% OFF</span>
-                      <span>-{formatARS(secondUnitPricing.discountAmount)}</span>
+                    <div className="flex justify-between font-semibold text-emerald-700">
+                      <span>{multiUnitDiscountLabel}</span>
+                      <span>-{formatARS(multiUnitDiscount)}</span>
                     </div>
-                    <div className="flex justify-between font-semibold">
-                      <span>Segunda unidad final</span>
-                      <span>{formatARS(secondUnitPricing.total)}</span>
-                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      El descuento se aplica solo al lavado más económico.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1171,10 +1311,18 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
                   <span>{formatARS(subtotalBeforeDiscounts)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-emerald-700">
-                  <span>Segunda unidad 20% OFF</span>
-                  <span>-{formatARS(discountTotal)}</span>
+                  <span>{multiUnitDiscountLabel}</span>
+                  <span>-{formatARS(multiUnitDiscount)}</span>
                 </div>
               </>
+            )}
+            {appliedCode && (
+              <div className="flex justify-between text-xs text-emerald-700">
+                <span>
+                  Código {appliedCode.code} ({describeDiscountCodeRule(appliedCode)})
+                </span>
+                <span>-{formatARS(codeDiscount)}</span>
+              </div>
             )}
             <div className="flex justify-between font-semibold">
               <span>
@@ -1212,7 +1360,7 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
               {resolvedLocation.displayAddress}
             </p>
             <p className="text-xs text-muted-foreground">
-              {selectedService?.name} · {vehicleCount}{" "}
+              {servicesSummary} · {vehicleCount}{" "}
               {vehicleCount === 1 ? "vehículo" : "vehículos"} · {estimatedDurationMinutes} min ·
               Zona {coverage.zone_name}
             </p>
@@ -1411,19 +1559,25 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
               </p>
             )}
             <p className="text-muted-foreground">
-              {selectedService?.name} · {vehicleCount}{" "}
-              {vehicleCount === 1 ? "vehículo" : "vehículos"} · {formatARS(total)}
+              {servicesSummary} · {vehicleCount} {vehicleCount === 1 ? "vehículo" : "vehículos"}
             </p>
-            {form.second_vehicle_enabled && discountTotal > 0 && (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  Subtotal antes de descuentos: {formatARS(subtotalBeforeDiscounts)}
-                </p>
-                <p className="text-emerald-700 text-xs">
-                  Segunda unidad 20% OFF (-{formatARS(discountTotal)})
-                </p>
-              </>
+            {(multiUnitDiscount > 0 || codeDiscount > 0) && (
+              <p className="text-xs text-muted-foreground">
+                Subtotal antes de descuentos: {formatARS(subtotalBeforeDiscounts)}
+              </p>
             )}
+            {form.second_vehicle_enabled && multiUnitDiscount > 0 && (
+              <p className="text-emerald-700 text-xs">
+                {multiUnitDiscountLabel} (-{formatARS(multiUnitDiscount)})
+              </p>
+            )}
+            {appliedCode && (
+              <p className="text-emerald-700 text-xs">
+                Código {appliedCode.code} · {describeDiscountCodeRule(appliedCode)} (-
+                {formatARS(codeDiscount)})
+              </p>
+            )}
+            <p className="font-semibold">Total: {formatARS(total)}</p>
             <p className="text-muted-foreground">
               Duración estimada: {estimatedDurationMinutes} min
             </p>
@@ -1519,6 +1673,70 @@ export function AddressFirstFlow({ attribution }: { attribution?: BookingAttribu
               ))}
             </div>
           </FormSection>
+
+          <FormSection title="¿Tenés un código de descuento?">
+            {appliedCode ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <div className="flex items-start gap-2 text-sm text-emerald-900">
+                  <Tag className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-semibold">
+                      {appliedCode.code} · {describeDiscountCodeRule(appliedCode)}
+                    </p>
+                    <p className="text-xs">
+                      Ahorrás {formatARS(codeDiscount)} · Total {formatARS(total)}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={removeDiscountCode}
+                  aria-label={`Quitar código ${appliedCode.code}`}
+                >
+                  <X className="mr-1 h-4 w-4" /> Quitar
+                </Button>
+              </div>
+            ) : (
+              <form
+                className="flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void applyDiscountCode(discountInput);
+                }}
+              >
+                <Input
+                  value={discountInput}
+                  onChange={(e) => {
+                    setDiscountInput(e.target.value.toUpperCase());
+                    setDiscountError(null);
+                  }}
+                  placeholder="Ej: MIBARRIO10"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="Código de descuento"
+                  aria-invalid={!!discountError}
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={discountChecking || !discountInput.trim()}
+                >
+                  {discountChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Aplicar"}
+                </Button>
+              </form>
+            )}
+            {discountError && <p className="mt-1 text-xs text-destructive">{discountError}</p>}
+          </FormSection>
+
+          <div className="rounded-xl border bg-muted/30 p-3 text-sm">
+            <div className="flex justify-between font-semibold">
+              <span>Total a pagar</span>
+              <span>{formatARS(total)}</span>
+            </div>
+          </div>
 
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setStep(2)}>

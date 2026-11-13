@@ -22,6 +22,7 @@ import { Route as AdminAppConfigRouteImport } from './routes/admin.app-config'
 import { Route as AdminBotmakerRouteImport } from './routes/admin.botmaker'
 import { Route as AdminCalendarioRouteImport } from './routes/admin.calendario'
 import { Route as AdminClientesRouteImport } from './routes/admin.clientes'
+import { Route as AdminCodigosDescuentoRouteImport } from './routes/admin.codigos-descuento'
 import { Route as AdminComprobantesRouteImport } from './routes/admin.comprobantes'
 import { Route as AdminConfiguracionRouteImport } from './routes/admin.configuracion'
 import { Route as AdminDisponibilidadRouteImport } from './routes/admin.disponibilidad'
@@ -113,6 +114,11 @@ const AdminCalendarioRoute = AdminCalendarioRouteImport.update({
 const AdminClientesRoute = AdminClientesRouteImport.update({
   id: '/clientes',
   path: '/clientes',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCodigosDescuentoRoute = AdminCodigosDescuentoRouteImport.update({
+  id: '/codigos-descuento',
+  path: '/codigos-descuento',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminComprobantesRoute = AdminComprobantesRouteImport.update({
@@ -270,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
+  '/admin/codigos-descuento': typeof AdminCodigosDescuentoRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
@@ -309,6 +316,7 @@ export interface FileRoutesByTo {
   '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
+  '/admin/codigos-descuento': typeof AdminCodigosDescuentoRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
@@ -353,6 +361,7 @@ export interface FileRoutesById {
   '/admin/botmaker': typeof AdminBotmakerRoute
   '/admin/calendario': typeof AdminCalendarioRoute
   '/admin/clientes': typeof AdminClientesRoute
+  '/admin/codigos-descuento': typeof AdminCodigosDescuentoRoute
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
@@ -398,6 +407,7 @@ export interface FileRouteTypes {
     | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
+    | '/admin/codigos-descuento'
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
@@ -437,6 +447,7 @@ export interface FileRouteTypes {
     | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
+    | '/admin/codigos-descuento'
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
@@ -480,6 +491,7 @@ export interface FileRouteTypes {
     | '/admin/botmaker'
     | '/admin/calendario'
     | '/admin/clientes'
+    | '/admin/codigos-descuento'
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
@@ -609,6 +621,13 @@ declare module '@tanstack/react-router' {
       path: '/clientes'
       fullPath: '/admin/clientes'
       preLoaderRoute: typeof AdminClientesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/codigos-descuento': {
+      id: '/admin/codigos-descuento'
+      path: '/codigos-descuento'
+      fullPath: '/admin/codigos-descuento'
+      preLoaderRoute: typeof AdminCodigosDescuentoRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/comprobantes': {
@@ -837,6 +856,7 @@ interface AdminRouteChildren {
   AdminBotmakerRoute: typeof AdminBotmakerRoute
   AdminCalendarioRoute: typeof AdminCalendarioRoute
   AdminClientesRoute: typeof AdminClientesRoute
+  AdminCodigosDescuentoRoute: typeof AdminCodigosDescuentoRoute
   AdminComprobantesRoute: typeof AdminComprobantesRoute
   AdminConfiguracionRoute: typeof AdminConfiguracionRoute
   AdminDisponibilidadRoute: typeof AdminDisponibilidadRoute
@@ -864,6 +884,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminBotmakerRoute: AdminBotmakerRoute,
   AdminCalendarioRoute: AdminCalendarioRoute,
   AdminClientesRoute: AdminClientesRoute,
+  AdminCodigosDescuentoRoute: AdminCodigosDescuentoRoute,
   AdminComprobantesRoute: AdminComprobantesRoute,
   AdminConfiguracionRoute: AdminConfiguracionRoute,
   AdminDisponibilidadRoute: AdminDisponibilidadRoute,
