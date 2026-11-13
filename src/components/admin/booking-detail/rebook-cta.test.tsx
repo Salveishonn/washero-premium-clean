@@ -63,7 +63,7 @@ describe("control tower rebook action", () => {
     const { unmount } = renderActions(booking(), "en_route");
     expect(screen.queryByRole("button", { name: "Volver a reservar" })).not.toBeInTheDocument();
     unmount();
-    renderActions(booking({ scheduled_date: "2026-10-20", booking_status: "confirmed" }), "wash_completed");
+    renderActions(booking({ scheduled_date: "2099-10-20", booking_status: "confirmed" }), "wash_completed");
     expect(screen.queryByRole("button", { name: "Volver a reservar" })).not.toBeInTheDocument();
     cleanup();
     renderActions(booking({ customer_id: null }), "closed");

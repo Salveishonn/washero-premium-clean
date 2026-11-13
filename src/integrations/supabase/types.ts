@@ -795,6 +795,90 @@ export type Database = {
           },
         ];
       };
+      marketing_campaign_recipients: {
+        Row: {
+          campaign_id: string;
+          created_at: string;
+          customer_id: string | null;
+          error: string | null;
+          id: string;
+          phone: string;
+          provider_message_id: string | null;
+          skip_reason: string | null;
+          status: string;
+        };
+        Insert: {
+          campaign_id: string;
+          created_at?: string;
+          customer_id?: string | null;
+          error?: string | null;
+          id?: string;
+          phone: string;
+          provider_message_id?: string | null;
+          skip_reason?: string | null;
+          status: string;
+        };
+        Update: {
+          campaign_id?: string;
+          created_at?: string;
+          customer_id?: string | null;
+          error?: string | null;
+          id?: string;
+          phone?: string;
+          provider_message_id?: string | null;
+          skip_reason?: string | null;
+          status?: string;
+        };
+        Relationships: [];
+      };
+      marketing_campaigns: {
+        Row: {
+          audience: string;
+          created_at: string;
+          created_by_admin_user_id: string | null;
+          failed_count: number;
+          finished_at: string | null;
+          id: string;
+          requested_count: number;
+          sent_count: number;
+          skipped_count: number;
+          status: string;
+          template_key: string;
+          template_name: string;
+          variables: Json;
+        };
+        Insert: {
+          audience: string;
+          created_at?: string;
+          created_by_admin_user_id?: string | null;
+          failed_count?: number;
+          finished_at?: string | null;
+          id?: string;
+          requested_count?: number;
+          sent_count?: number;
+          skipped_count?: number;
+          status?: string;
+          template_key: string;
+          template_name: string;
+          variables?: Json;
+        };
+        Update: {
+          audience?: string;
+          created_at?: string;
+          created_by_admin_user_id?: string | null;
+          failed_count?: number;
+          finished_at?: string | null;
+          id?: string;
+          requested_count?: number;
+          sent_count?: number;
+          skipped_count?: number;
+          status?: string;
+          template_key?: string;
+          template_name?: string;
+          variables?: Json;
+        };
+        Relationships: [];
+      };
       whatsapp_agent_outbound_messages: {
         Row: {
           conversation_id: string;
@@ -1294,6 +1378,44 @@ export type Database = {
         };
         Relationships: [];
       };
+      customer_lead_signals: {
+        Row: {
+          customer_id: string;
+          detail: Json;
+          first_seen_at: string;
+          hits: number;
+          id: string;
+          last_seen_at: string;
+          signal: string;
+        };
+        Insert: {
+          customer_id: string;
+          detail?: Json;
+          first_seen_at?: string;
+          hits?: number;
+          id?: string;
+          last_seen_at?: string;
+          signal: string;
+        };
+        Update: {
+          customer_id?: string;
+          detail?: Json;
+          first_seen_at?: string;
+          hits?: number;
+          id?: string;
+          last_seen_at?: string;
+          signal?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "customer_lead_signals_customer_id_fkey";
+            columns: ["customer_id"];
+            isOneToOne: false;
+            referencedRelation: "customers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       customers: {
         Row: {
           address: string | null;
@@ -1303,13 +1425,16 @@ export type Database = {
           coverage_zone_name: string | null;
           created_at: string;
           email: string | null;
+          first_contact_at: string | null;
           formatted_address: string | null;
           full_name: string;
           id: string;
+          last_contact_at: string | null;
           neighborhood: string | null;
           notes: string | null;
           phone: string;
           place_id: string | null;
+          source: string | null;
           updated_at: string;
         };
         Insert: {
@@ -1320,13 +1445,16 @@ export type Database = {
           coverage_zone_name?: string | null;
           created_at?: string;
           email?: string | null;
+          first_contact_at?: string | null;
           formatted_address?: string | null;
           full_name: string;
           id?: string;
+          last_contact_at?: string | null;
           neighborhood?: string | null;
           notes?: string | null;
           phone: string;
           place_id?: string | null;
+          source?: string | null;
           updated_at?: string;
         };
         Update: {
@@ -1337,13 +1465,16 @@ export type Database = {
           coverage_zone_name?: string | null;
           created_at?: string;
           email?: string | null;
+          first_contact_at?: string | null;
           formatted_address?: string | null;
           full_name?: string;
           id?: string;
+          last_contact_at?: string | null;
           neighborhood?: string | null;
           notes?: string | null;
           phone?: string;
           place_id?: string | null;
+          source?: string | null;
           updated_at?: string;
         };
         Relationships: [
@@ -1925,7 +2056,7 @@ export type Database = {
           opted_in_at: string | null;
           opted_out_at: string | null;
           purpose: string;
-          recorded_by_admin_user_id: string;
+          recorded_by_admin_user_id: string | null;
           source: string;
           status: string;
           updated_at: string;
@@ -1939,7 +2070,7 @@ export type Database = {
           opted_in_at?: string | null;
           opted_out_at?: string | null;
           purpose: string;
-          recorded_by_admin_user_id: string;
+          recorded_by_admin_user_id?: string | null;
           source: string;
           status: string;
           updated_at?: string;
@@ -1953,7 +2084,7 @@ export type Database = {
           opted_in_at?: string | null;
           opted_out_at?: string | null;
           purpose?: string;
-          recorded_by_admin_user_id?: string;
+          recorded_by_admin_user_id?: string | null;
           source?: string;
           status?: string;
           updated_at?: string;

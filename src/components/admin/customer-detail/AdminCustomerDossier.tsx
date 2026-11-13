@@ -30,6 +30,16 @@ import {
   type DerivedCompletedWash,
 } from "@/lib/admin-customer-detail";
 import { getCustomerRetention } from "@/lib/admin-customer-retention";
+import {
+  CUSTOMER_STAGE_LABEL,
+  LEAD_SIGNAL_LABEL,
+  customerSourceLabel,
+  deriveBookingProfile,
+  deriveCustomerStage,
+  isLeadSignal,
+  type CountedValue,
+  type CustomerLeadSignalRow,
+} from "@/lib/customer-profile";
 
 function formatLastWash(wash: DerivedCompletedWash): string {
   return fmtDate(getCompletedWashEffectiveDate(wash.booking, wash.operation));
@@ -46,6 +56,7 @@ export function AdminCustomerDossier({
   communications,
   hasActiveSubscription,
   todayIso,
+  signals = [],
   onEdit,
   onRebook,
 }: {
@@ -55,6 +66,7 @@ export function AdminCustomerDossier({
   communications: CustomerCommunication[];
   hasActiveSubscription: boolean;
   todayIso: string;
+  signals?: CustomerLeadSignalRow[];
   onEdit?: () => void;
   onRebook?: (defaults: BookingCreateDefaults) => void;
 }) {
@@ -106,6 +118,15 @@ export function AdminCustomerDossier({
       todayIso,
     );
   const latestRebook = lastWashBooking ? rebookDefaultsFor(lastWashBooking) : null;
+  const profile = deriveBookingProfile({ bookings, operations, todayIso });
+  const stage = deriveCustomerStage({
+    totalBookings: profile.totalBookings,
+    completedWashes: profile.completedWashes,
+  });
+  const knownSignals = signals.filter((row) => isLeadSignal(row.signal));
+  const outsideDetail = knownSignals.find((row) => row.signal === "fuera_de_cobertura")?.detail;
+  const outsideCoverageQuery =
+    typeof outsideDetail?.ultima_consulta === "string" ? outsideDetail.ultima_consulta : null;
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-6xl space-y-5 overflow-x-hidden">
@@ -115,9 +136,16 @@ export function AdminCustomerDossier({
             <Link to="/admin/clientes">Volver a clientes</Link>
           </Button>
           <h1 className="break-words text-2xl font-semibold tracking-tight">{customer.full_name}</h1>
-          <p className="text-sm text-muted-foreground">Cliente desde {since}</p>
+          <p className="text-sm text-muted-foreground">
+            {stage === "lead" ? "Contacto desde" : "Cliente desde"} {since}
+          </p>
           <div className="flex flex-wrap gap-1.5">
-            {crm.relationship.map((label) => (
+            {stage === "lead" && (
+              <Badge className="bg-amber-500 text-white hover:bg-amber-500">
+                {CUSTOMER_STAGE_LABEL.lead} · sin reservas
+              </Badge>
+            )}
+            {stage !== "lead" && crm.relationship.map((label) => (
               <Badge key={label} variant={label === "Suscripción" ? "default" : "secondary"}>
                 {label}
               </Badge>
@@ -253,6 +281,59 @@ export function AdminCustomerDossier({
         </div>
 
         <div className="min-w-0 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Perfil comercial</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <Stat label="Etapa" value={CUSTOMER_STAGE_LABEL[stage]} />
+                <Stat label="Origen" value={customerSourceLabel(customer.source)} />
+                <Stat label="Gasto total" value={formatPrice(profile.totalSpent)} />
+                <Stat
+                  label="Ticket promedio"
+                  value={profile.averageTicket == null ? "—" : formatPrice(profile.averageTicket)}
+                />
+                <Stat
+                  label="Primer contacto"
+                  value={customer.first_contact_at ? formatAdminDateTime(customer.first_contact_at) : "—"}
+                />
+                <Stat
+                  label="Último mensaje"
+                  value={customer.last_contact_at ? formatAdminDateTime(customer.last_contact_at) : "—"}
+                />
+              </div>
+              <ProfileList label="Vehículos" items={profile.vehicles} empty="Sin vehículos registrados" />
+              <ProfileList label="Medios de pago" items={profile.paymentMethods} empty="Sin pagos registrados" />
+              <ProfileList label="Servicios" items={profile.services} empty="Sin servicios todavía" />
+              {profile.extras.length > 0 && <ProfileList label="Extras" items={profile.extras} empty="" />}
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">Interés mostrado en el bot</p>
+                {knownSignals.length === 0 ? (
+                  <p className="text-muted-foreground">Sin señales registradas.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {knownSignals.map((row) => (
+                      <Badge
+                        key={row.signal}
+                        variant={row.signal === "contacto" ? "outline" : "secondary"}
+                        title={`Última vez: ${formatAdminDateTime(row.last_seen_at)}`}
+                      >
+                        {LEAD_SIGNAL_LABEL[row.signal as keyof typeof LEAD_SIGNAL_LABEL]}
+                        {row.hits > 1 ? ` ×${row.hits}` : ""}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {outsideCoverageQuery && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Consultó fuera de cobertura por: {outsideCoverageQuery}
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Resumen</CardTitle>
@@ -414,6 +495,26 @@ function PatternField({ label, value }: { label: string; value: string | null })
     <div className="min-w-0">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="break-words font-medium">{value || "—"}</p>
+    </div>
+  );
+}
+
+function ProfileList({ label, items, empty }: { label: string; items: CountedValue[]; empty: string }) {
+  return (
+    <div>
+      <p className="mb-1 text-xs text-muted-foreground">{label}</p>
+      {items.length === 0 ? (
+        <p className="text-muted-foreground">{empty}</p>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {items.slice(0, 6).map((item) => (
+            <Badge key={item.value} variant="outline">
+              {item.value}
+              {item.count > 1 ? ` ×${item.count}` : ""}
+            </Badge>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

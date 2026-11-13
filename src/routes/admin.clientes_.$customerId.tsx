@@ -31,6 +31,7 @@ import {
   parseAdminCustomerRouteId,
   todayArgentinaIso,
 } from "@/lib/admin-customer-detail";
+import { fetchCustomerLeadSignals } from "@/lib/admin-customer-signals";
 
 export const Route = createFileRoute("/admin/clientes_/$customerId")({
   component: AdminCustomerDetailPage,
@@ -112,6 +113,11 @@ function CustomerDossierLoader({
   const preferenceQuery = useQuery({
     queryKey: retentionPreferenceCustomerQueryKey(customerId),
     queryFn: () => fetchRetentionPreference(customerId),
+    staleTime: CUSTOMER_DOSSIER_STALE_MS,
+  });
+  const signalsQuery = useQuery({
+    queryKey: ["admin", "customer", customerId, "lead-signals"],
+    queryFn: () => fetchCustomerLeadSignals(customerId),
     staleTime: CUSTOMER_DOSSIER_STALE_MS,
   });
   const phoneIndexQuery = useQuery({
@@ -205,6 +211,7 @@ function CustomerDossierLoader({
         communications={communicationsQuery.data ?? []}
         hasActiveSubscription={!!subscriptionQuery.data}
         todayIso={todayArgentinaIso()}
+        signals={signalsQuery.data ?? []}
         onEdit={onEdit}
         onRebook={setRebook}
       />

@@ -10,7 +10,7 @@ describe("customer retention queue contract", () => {
   it("stays a view on Clientes and reuses the safe rebook dialog", () => {
     const list = readRepoFile("src/routes/admin.clientes.tsx");
     const nav = readRepoFile("src/lib/admin-nav.ts");
-    expect(list).toContain('view: z.enum(["todos", "recuperar"])');
+    expect(list).toContain('view: z.enum(["todos", "leads", "recuperar"])');
     expect(list).toContain("buildCustomerRetentionQueue");
     expect(list).toContain("AdminCreateBookingDialog");
     expect(list).toContain("Para recuperar");

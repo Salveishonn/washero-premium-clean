@@ -32,6 +32,7 @@ import { Route as AdminFinanzasRouteImport } from './routes/admin.finanzas'
 import { Route as AdminLeadsKipperRouteImport } from './routes/admin.leads-kipper'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminMapaDemandaRouteImport } from './routes/admin.mapa-demanda'
+import { Route as AdminMarketingRouteImport } from './routes/admin.marketing'
 import { Route as AdminMensajesRouteImport } from './routes/admin.mensajes'
 import { Route as AdminNotificacionesRouteImport } from './routes/admin.notificaciones'
 import { Route as AdminPreciosRouteImport } from './routes/admin.precios'
@@ -166,6 +167,11 @@ const AdminMapaDemandaRoute = AdminMapaDemandaRouteImport.update({
   path: '/mapa-demanda',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminMarketingRoute = AdminMarketingRouteImport.update({
+  id: '/marketing',
+  path: '/marketing',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMensajesRoute = AdminMensajesRouteImport.update({
   id: '/mensajes',
   path: '/mensajes',
@@ -286,6 +292,7 @@ export interface FileRoutesByFullPath {
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
+  '/admin/marketing': typeof AdminMarketingRoute
   '/admin/mensajes': typeof AdminMensajesRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
@@ -326,6 +333,7 @@ export interface FileRoutesByTo {
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
+  '/admin/marketing': typeof AdminMarketingRoute
   '/admin/mensajes': typeof AdminMensajesRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
@@ -371,6 +379,7 @@ export interface FileRoutesById {
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
+  '/admin/marketing': typeof AdminMarketingRoute
   '/admin/mensajes': typeof AdminMensajesRoute
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
@@ -417,6 +426,7 @@ export interface FileRouteTypes {
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
+    | '/admin/marketing'
     | '/admin/mensajes'
     | '/admin/notificaciones'
     | '/admin/precios'
@@ -457,6 +467,7 @@ export interface FileRouteTypes {
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
+    | '/admin/marketing'
     | '/admin/mensajes'
     | '/admin/notificaciones'
     | '/admin/precios'
@@ -501,6 +512,7 @@ export interface FileRouteTypes {
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
+    | '/admin/marketing'
     | '/admin/mensajes'
     | '/admin/notificaciones'
     | '/admin/precios'
@@ -693,6 +705,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMapaDemandaRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/marketing': {
+      id: '/admin/marketing'
+      path: '/marketing'
+      fullPath: '/admin/marketing'
+      preLoaderRoute: typeof AdminMarketingRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/mensajes': {
       id: '/admin/mensajes'
       path: '/mensajes'
@@ -866,6 +885,7 @@ interface AdminRouteChildren {
   AdminLeadsKipperRoute: typeof AdminLeadsKipperRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminMapaDemandaRoute: typeof AdminMapaDemandaRoute
+  AdminMarketingRoute: typeof AdminMarketingRoute
   AdminMensajesRoute: typeof AdminMensajesRoute
   AdminNotificacionesRoute: typeof AdminNotificacionesRoute
   AdminPreciosRoute: typeof AdminPreciosRoute
@@ -894,6 +914,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminLeadsKipperRoute: AdminLeadsKipperRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminMapaDemandaRoute: AdminMapaDemandaRoute,
+  AdminMarketingRoute: AdminMarketingRoute,
   AdminMensajesRoute: AdminMensajesRoute,
   AdminNotificacionesRoute: AdminNotificacionesRoute,
   AdminPreciosRoute: AdminPreciosRoute,

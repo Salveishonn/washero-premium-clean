@@ -107,6 +107,11 @@ const STEP_OF_STATE = {
   await_receipt: 'WAITPAY', mybk: 'MYBK', bkact: 'BKACT', rdate: 'RDATE',
   rtime: 'RTIME', cxlconf: 'CXLCONF'
 };
+// Quick replies of WhatsApp marketing templates. whatsapp-tools ingest_message already
+// stored the consent; here we only acknowledge and leave the customer in the menu.
+const promoReply = low.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const isPromoOptIn = mtype === 'button' && promoReply === 'si, quiero promos';
+const isPromoOptOut = mtype === 'button' && promoReply === 'no recibir promos';
 const isMenuCmd = rid === 'nav:menu' || /^(menu|menú|hola|buenas|inicio|volver|empezar|start)$/i.test(low);
 const isHumanCmd = rid === 'nav:humano';
 const isReceiptMedia = mtype === 'image' || mtype === 'document';
@@ -121,7 +126,13 @@ let step = 'MENU';
 let prefix = '';
 let data = JSON.parse(JSON.stringify(data0));
 
-if (results.length >= MAX_TOOL_CALLS) {
+if (isPromoOptIn) {
+  step = 'MENU';
+  data = { misses: 0 };
+  prefix = '¡Listo! Te vamos a avisar por acá cuando haya promos 🙌\n\n';
+} else if (isPromoOptOut) {
+  return reply('none', { misses: 0 }, msgText('Listo, no te vamos a mandar más promociones. Si necesitás algo, escribí *menu* 👋'));
+} else if (results.length >= MAX_TOOL_CALLS) {
   step = 'HANDOFF';
   data.handoff_reason = 'flujo n8n: demasiados pasos internos en un turno';
 } else if (state0 === 'handoff' && !isMenuCmd) {
@@ -155,6 +166,10 @@ if (results.length >= MAX_TOOL_CALLS) {
   } else {
     step = 'MISS';
   }
+} else if (mtype === 'button') {
+  // Any other template button (e.g. "Reservar" quick reply): show the menu.
+  step = 'MENU';
+  data = { misses: 0 };
 } else if (mtype !== 'text' && mtype !== 'interactive') {
   step = 'MISS';
   prefix = 'Por ahora no puedo procesar ese tipo de mensaje 🙅‍♂️\n\n';

@@ -24,6 +24,7 @@ export const ADMIN_NAV_SECTIONS: readonly AdminNavSection[] = [
     items: [
       { title: "Clientes", to: "/admin/clientes" },
       { title: "Mensajes", to: "/admin/mensajes" },
+      { title: "Marketing", to: "/admin/marketing" },
     ],
   },
   {

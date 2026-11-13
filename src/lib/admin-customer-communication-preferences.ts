@@ -18,7 +18,7 @@ export type CustomerCommunicationPreference = {
   opted_out_at: string | null;
   source: string;
   evidence_note: string;
-  recorded_by_admin_user_id: string;
+  recorded_by_admin_user_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -55,7 +55,7 @@ function mapPreference(row: {
   opted_out_at: string | null;
   source: string;
   evidence_note: string;
-  recorded_by_admin_user_id: string;
+  recorded_by_admin_user_id: string | null;
   created_at: string;
   updated_at: string;
 }): CustomerCommunicationPreference | null {

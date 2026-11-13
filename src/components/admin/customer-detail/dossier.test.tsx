@@ -112,7 +112,8 @@ describe("admin customer dossier", () => {
   it("shows an empty last-wash state and does not invent a habit", () => {
     renderDossier([]);
     expect(screen.getByText("Este cliente todavía no tiene lavados completados.")).toBeInTheDocument();
-    expect(screen.getByText("Nuevo")).toBeInTheDocument();
+    expect(screen.getByText("Lead · sin reservas")).toBeInTheDocument();
+    expect(screen.getByText("Contacto desde", { exact: false })).toBeInTheDocument();
     expect(screen.queryByText("Servicio habitual")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Abrir en Mensajes/i })).toHaveAttribute(
       "href",
@@ -172,7 +173,9 @@ describe("admin customer dossier", () => {
 
     expect(screen.getAllByText("Último lavado").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Próxima reserva").length).toBeGreaterThan(0);
-    expect(screen.getByText("Recurrente")).toBeInTheDocument();
+    expect(screen.getAllByText("Recurrente").length).toBeGreaterThan(0);
+    expect(screen.getByText("Perfil comercial")).toBeInTheDocument();
+    expect(screen.getByText("SUV", { exact: false, selector: "div.inline-flex, span" })).toBeTruthy();
     expect(screen.getByText("Servicio habitual")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Ver reserva" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/raw_payload/)).not.toBeInTheDocument();

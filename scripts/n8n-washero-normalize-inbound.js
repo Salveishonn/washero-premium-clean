@@ -9,8 +9,11 @@ for (const item of $input.all()) {
   const loc = m.location || {};
   const img = m.image || {};
   const doc = m.document || {};
+  // Template quick-reply taps (marketing "Sí, quiero promos" / "No recibir promos").
+  const btn = m.button || {};
   const body =
     (m.text && m.text.body) ||
+    btn.text ||
     img.caption ||
     doc.caption ||
     lr.title ||
@@ -23,7 +26,7 @@ for (const item of $input.all()) {
       conversation_id: String(m.from || ""),
       message_type: String(m.type || "unknown"),
       message_text: String(body),
-      reply_id: String(lr.id || br.id || ""),
+      reply_id: String(lr.id || br.id || btn.payload || ""),
       reply_title: String(lr.title || br.title || ""),
       external_message_id: String(m.id || ""),
       media_id: String(img.id || doc.id || (m.audio && m.audio.id) || (m.sticker && m.sticker.id) || ""),
