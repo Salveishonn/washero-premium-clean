@@ -14,6 +14,7 @@ import {
   MapPin,
   AlertTriangle,
   Trash2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,6 +39,21 @@ import {
   type RetentionCustomerSource,
 } from "@/lib/admin-customer-retention";
 import type { BookingCreateDefaults } from "@/lib/booking-rebook";
+import { fetchCustomerLeadSignals } from "@/lib/admin-customer-signals";
+import {
+  CUSTOMER_STAGE_LABEL,
+  INTEREST_SIGNALS,
+  LEAD_SIGNAL_LABEL,
+  customerSourceLabel,
+  deriveBookingProfile,
+  deriveCustomerStage,
+  groupSignalsByCustomer,
+  interestSignals,
+  toCsv,
+  type CustomerStage,
+  type LeadSignal,
+} from "@/lib/customer-profile";
+import { formatPrice } from "@/lib/booking-badges";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,7 +90,7 @@ import {
 import { fmtDate } from "@/components/admin/bookings";
 
 const clientesSearchSchema = z.object({
-  view: z.enum(["todos", "recuperar"]).optional(),
+  view: z.enum(["todos", "leads", "recuperar"]).optional(),
 });
 
 const DIRECTORY_BOOKING_LIMIT = 5000;
@@ -126,9 +142,18 @@ type Customer = {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  source: string | null;
+  first_contact_at: string | null;
+  last_contact_at: string | null;
 };
 
 type CustomerRow = Customer & {
+  stage: CustomerStage;
+  completed_washes: number;
+  total_spent: number;
+  interests: LeadSignal[];
+  /** Latest of last WhatsApp message day and last booking date. */
+  last_activity: string | null;
   total_bookings: number;
   /** Latest scheduled_date, not a completed wash. */
   last_booking_date: string | null;
@@ -142,14 +167,16 @@ type CustomerRow = Customer & {
 function ClientesPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const view = Route.useSearch().view === "recuperar" ? "recuperar" : "todos";
+  const rawView = Route.useSearch().view;
+  const view: "todos" | "leads" | "recuperar" =
+    rawView === "recuperar" || rawView === "leads" ? rawView : "todos";
   const openCustomer = (customerId: string) => {
     navigate({ to: "/admin/clientes/$customerId", params: { customerId } });
   };
-  const setView = (next: "todos" | "recuperar") => {
+  const setView = (next: "todos" | "leads" | "recuperar") => {
     navigate({
       to: "/admin/clientes",
-      search: next === "recuperar" ? { view: "recuperar" } : {},
+      search: next === "todos" ? {} : { view: next },
     });
   };
 
@@ -157,6 +184,8 @@ function ClientesPage() {
   const [neighborhoodFilter, setNeighborhoodFilter] = useState<string>("all");
   const [bookingsFilter, setBookingsFilter] = useState<string>("all");
   const [activityFilter, setActivityFilter] = useState<string>("all");
+  const [stageFilter, setStageFilter] = useState<string>("all");
+  const [interestFilter, setInterestFilter] = useState<string>("all");
 
   const [editing, setEditing] = useState<Customer | null>(null);
   const [creating, setCreating] = useState(false);
@@ -167,15 +196,27 @@ function ClientesPage() {
   const customersQuery = useQuery({
     queryKey: ["admin", "customers"],
     queryFn: async (): Promise<Customer[]> => {
+      const base = "id,full_name,phone,email,address,neighborhood,notes,created_at,updated_at";
       const { data, error } = await supabase
         .from("customers")
-        .select(
-          "id,full_name,phone,email,address,neighborhood,notes,created_at,updated_at",
-        )
+        .select(`${base},source,first_contact_at,last_contact_at`)
         .order("updated_at", { ascending: false })
-        .limit(1000);
-      if (error) throw error;
-      return data ?? [];
+        .limit(5000);
+      if (!error) return data ?? [];
+      // Lead columns not migrated yet (42703 undefined_column): keep the page working.
+      if (error.code !== "42703") throw error;
+      const legacy = await supabase
+        .from("customers")
+        .select(base)
+        .order("updated_at", { ascending: false })
+        .limit(5000);
+      if (legacy.error) throw legacy.error;
+      return (legacy.data ?? []).map((row) => ({
+        ...row,
+        source: null,
+        first_contact_at: null,
+        last_contact_at: null,
+      }));
     },
   });
 
@@ -230,6 +271,15 @@ function ClientesPage() {
     },
   });
 
+  const signalsQuery = useQuery({
+    queryKey: ["admin", "customers", "lead-signals"],
+    queryFn: () => fetchCustomerLeadSignals(),
+  });
+  const signalsByCustomer = useMemo(
+    () => groupSignalsByCustomer(signalsQuery.data ?? []),
+    [signalsQuery.data],
+  );
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["admin", "customers"] });
     qc.invalidateQueries({ queryKey: ["admin", "customers", "aggregates"] });
@@ -244,20 +294,60 @@ function ClientesPage() {
       if (!p) continue;
       phoneCount.set(p, (phoneCount.get(p) ?? 0) + 1);
     }
+    const today = todayArgentinaIso();
+    const bookingsById = new Map<string, DirectoryBooking[]>();
+    const bookingsByPhone = new Map<string, DirectoryBooking[]>();
+    for (const booking of agg?.bookings ?? []) {
+      const map = booking.customer_id ? bookingsById : bookingsByPhone;
+      const mapKey = booking.customer_id ?? booking.customer_phone;
+      if (!mapKey) continue;
+      const list = map.get(mapKey) ?? [];
+      list.push(booking);
+      map.set(mapKey, list);
+    }
+    const operations = agg?.operations ?? [];
     return customers.map((c) => {
       const aById = agg?.byId.get(c.id);
       const aByPhone = agg?.byPhone.get(c.phone);
       // Prefer linked, fallback to phone-matched (for unlinked website bookings)
       const total = aById?.count ?? aByPhone?.count ?? 0;
       const last = aById?.last ?? aByPhone?.last ?? null;
+      const ownBookings = bookingsById.get(c.id) ?? bookingsByPhone.get(c.phone) ?? [];
+      const profile = deriveBookingProfile({ bookings: ownBookings, operations, todayIso: today });
+      const lastContactDay = c.last_contact_at ? c.last_contact_at.slice(0, 10) : null;
+      const lastActivity = [lastContactDay, last].filter((v): v is string => !!v).sort().pop() ?? null;
       return {
         ...c,
+        stage: deriveCustomerStage({ totalBookings: total, completedWashes: profile.completedWashes }),
+        completed_washes: profile.completedWashes,
+        total_spent: profile.totalSpent,
+        interests: interestSignals(signalsByCustomer.get(c.id)),
+        last_activity: lastActivity,
         total_bookings: total,
         last_booking_date: last,
         duplicate_phone: (phoneCount.get(c.phone) ?? 0) > 1,
       };
     });
-  }, [customersQuery.data, aggregatesQuery.data]);
+  }, [customersQuery.data, aggregatesQuery.data, signalsByCustomer]);
+
+  const stageSummary = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 86400000;
+    let leads = 0;
+    let newLeads = 0;
+    let clientes = 0;
+    let recurrentes = 0;
+    let spent = 0;
+    for (const r of rows) {
+      spent += r.total_spent;
+      if (r.stage === "lead") {
+        leads += 1;
+        const firstSeen = r.first_contact_at ?? r.created_at;
+        if (firstSeen && new Date(firstSeen).getTime() >= weekAgo) newLeads += 1;
+      } else if (r.stage === "recurrente") recurrentes += 1;
+      else clientes += 1;
+    }
+    return { total: rows.length, leads, newLeads, clientes, recurrentes, spent };
+  }, [rows]);
 
   const neighborhoods = useMemo(() => {
     const s = new Set<string>();
@@ -285,6 +375,9 @@ function ClientesPage() {
       }
       if (neighborhoodFilter !== "all" && r.neighborhood !== neighborhoodFilter)
         return false;
+      const stage = view === "leads" ? "lead" : stageFilter;
+      if (stage !== "all" && r.stage !== stage) return false;
+      if (interestFilter !== "all" && !r.interests.includes(interestFilter as LeadSignal)) return false;
       if (bookingsFilter === "with" && r.total_bookings === 0) return false;
       if (bookingsFilter === "without" && r.total_bookings > 0) return false;
       if (activityFilter !== "all") {
@@ -301,8 +394,40 @@ function ClientesPage() {
         }
       }
       return true;
+    }).sort((a, b) => {
+      if (view !== "leads") return 0;
+      const av = a.last_contact_at ?? a.created_at;
+      const bv = b.last_contact_at ?? b.created_at;
+      return av < bv ? 1 : av > bv ? -1 : 0;
     });
-  }, [rows, search, neighborhoodFilter, bookingsFilter, activityFilter]);
+  }, [rows, search, neighborhoodFilter, bookingsFilter, activityFilter, stageFilter, interestFilter, view]);
+
+  const exportCsv = () => {
+    const csv = toCsv(
+      ["Nombre", "Teléfono", "Email", "Etapa", "Origen", "Intereses", "Reservas", "Lavados", "Gasto total", "Barrio", "Última reserva", "Último mensaje"],
+      filtered.map((r) => [
+        r.full_name,
+        r.phone,
+        r.email,
+        CUSTOMER_STAGE_LABEL[r.stage],
+        customerSourceLabel(r.source),
+        r.interests.map((s) => LEAD_SIGNAL_LABEL[s]).join(" | "),
+        r.total_bookings,
+        r.completed_washes,
+        r.total_spent,
+        r.neighborhood,
+        r.last_booking_date,
+        r.last_contact_at,
+      ]),
+    );
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `washero-contactos-${todayArgentinaIso()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const todayIso = todayArgentinaIso();
   const retentionQueue = useMemo(() => {
@@ -407,7 +532,9 @@ function ClientesPage() {
           <p className="text-sm text-muted-foreground">
             {view === "recuperar"
               ? "Clientes con un lavado completado y sin una reserva futura."
-              : "Gestioná clientes, datos de contacto e historial de reservas."}
+              : view === "leads"
+                ? "Personas que escribieron al bot y todavía no reservaron. Las más recientes primero."
+                : "Todos los contactos: leads del bot, clientes y recurrentes."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -427,6 +554,11 @@ function ClientesPage() {
           <Button variant="outline" size="sm" onClick={refresh}>
             <RefreshCw className="mr-2 h-4 w-4" /> Actualizar
           </Button>
+          {view !== "recuperar" && (
+            <Button variant="outline" size="sm" onClick={exportCsv} disabled={filtered.length === 0}>
+              <Download className="mr-2 h-4 w-4" /> Exportar CSV
+            </Button>
+          )}
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="mr-2 h-4 w-4" /> Nuevo cliente
           </Button>
@@ -446,6 +578,15 @@ function ClientesPage() {
         <Button
           type="button"
           size="sm"
+          variant={view === "leads" ? "default" : "outline"}
+          aria-pressed={view === "leads"}
+          onClick={() => setView("leads")}
+        >
+          Leads{stageSummary.leads > 0 ? ` (${stageSummary.leads})` : ""}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
           variant={view === "recuperar" ? "default" : "outline"}
           aria-pressed={view === "recuperar"}
           onClick={() => setView("recuperar")}
@@ -454,10 +595,24 @@ function ClientesPage() {
         </Button>
       </div>
 
+      {!loading && !error && view !== "recuperar" && (
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <KpiTile label="Contactos" value={String(stageSummary.total)} />
+          <KpiTile
+            label="Leads"
+            value={String(stageSummary.leads)}
+            hint={stageSummary.newLeads ? `+${stageSummary.newLeads} esta semana` : undefined}
+          />
+          <KpiTile label="Clientes" value={String(stageSummary.clientes)} />
+          <KpiTile label="Recurrentes" value={String(stageSummary.recurrentes)} />
+          <KpiTile label="Facturado (lavados hechos)" value={formatPrice(stageSummary.spent)} />
+        </div>
+      )}
+
       {/* Filters */}
       <Card>
-        <CardContent className={`grid gap-3 p-4 ${view === "todos" ? "md:grid-cols-4" : ""}`}>
-          <div className={view === "todos" ? "md:col-span-2" : ""}>
+        <CardContent className={`grid gap-3 p-4 ${view !== "recuperar" ? "md:grid-cols-4" : ""}`}>
+          <div className={view !== "recuperar" ? "md:col-span-2" : ""}>
             <Label className="text-xs">Buscar</Label>
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -469,8 +624,34 @@ function ClientesPage() {
               />
             </div>
           </div>
-          {view === "todos" && (
+          {view !== "recuperar" && (
           <>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Etapa</Label>
+              <Select value={view === "leads" ? "lead" : stageFilter} onValueChange={setStageFilter} disabled={view === "leads"}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="lead">Leads</SelectItem>
+                  <SelectItem value="cliente">Clientes</SelectItem>
+                  <SelectItem value="recurrente">Recurrentes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Interés</Label>
+              <Select value={interestFilter} onValueChange={setInterestFilter}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {INTEREST_SIGNALS.map((signal) => (
+                    <SelectItem key={signal} value={signal}>{LEAD_SIGNAL_LABEL[signal]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <div>
             <Label className="text-xs">Barrio</Label>
             <Select value={neighborhoodFilter} onValueChange={setNeighborhoodFilter}>
@@ -552,8 +733,10 @@ function ClientesPage() {
                     <TableHead>Cliente</TableHead>
                     <TableHead>Contacto</TableHead>
                     <TableHead>Ubicación</TableHead>
+                    <TableHead>Interés</TableHead>
                     <TableHead>Reservas</TableHead>
-                    <TableHead>Última reserva</TableHead>
+                    <TableHead>Gasto</TableHead>
+                    <TableHead>Última actividad</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -569,6 +752,9 @@ function ClientesPage() {
                         >
                           {c.full_name}
                         </Link>
+                        <div className="mt-1">
+                          <StageBadge stage={c.stage} />
+                        </div>
                         {c.duplicate_phone && (
                           <Badge variant="outline" className="mt-1 gap-1 text-amber-700 dark:text-amber-300">
                             <AlertTriangle className="h-3 w-3" /> Teléfono duplicado
@@ -584,6 +770,9 @@ function ClientesPage() {
                         <div className="text-muted-foreground line-clamp-1">{c.address ?? ""}</div>
                       </TableCell>
                       <TableCell>
+                        <InterestBadges interests={c.interests} />
+                      </TableCell>
+                      <TableCell>
                         {c.total_bookings > 0 ? (
                           <Badge variant="secondary">{c.total_bookings}</Badge>
                         ) : (
@@ -591,7 +780,10 @@ function ClientesPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {c.last_booking_date ? fmtDate(c.last_booking_date) : "—"}
+                        {c.total_spent > 0 ? formatPrice(c.total_spent) : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {c.last_activity ? fmtDate(c.last_activity) : "—"}
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
@@ -635,12 +827,14 @@ function ClientesPage() {
                         <Phone className="h-3 w-3" /> {c.phone}
                       </div>
                     </div>
-                    {c.total_bookings > 0 ? (
-                      <Badge variant="secondary">{c.total_bookings} reservas</Badge>
-                    ) : (
-                      <Badge variant="outline">Sin reservas</Badge>
-                    )}
+                    <div className="flex flex-col items-end gap-1">
+                      <StageBadge stage={c.stage} />
+                      {c.total_bookings > 0 && (
+                        <Badge variant="secondary">{c.total_bookings} reservas</Badge>
+                      )}
+                    </div>
                   </div>
+                  <InterestBadges interests={c.interests} />
                   {c.email && (
                     <div className="text-xs text-muted-foreground flex items-center gap-1">
                       <Mail className="h-3 w-3" /> {c.email}
@@ -736,6 +930,39 @@ function ClientesPage() {
         }}
       />
     </div>
+  );
+}
+
+function StageBadge({ stage }: { stage: CustomerStage }) {
+  if (stage === "lead") {
+    return <Badge className="bg-amber-500 text-white hover:bg-amber-500">{CUSTOMER_STAGE_LABEL.lead}</Badge>;
+  }
+  if (stage === "recurrente") return <Badge>{CUSTOMER_STAGE_LABEL.recurrente}</Badge>;
+  return <Badge variant="secondary">{CUSTOMER_STAGE_LABEL.cliente}</Badge>;
+}
+
+function InterestBadges({ interests }: { interests: LeadSignal[] }) {
+  if (interests.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {interests.map((signal) => (
+        <Badge key={signal} variant="outline" className="text-[11px] font-normal">
+          {LEAD_SIGNAL_LABEL[signal]}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function KpiTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xl font-semibold">{value}</p>
+        {hint && <p className="text-xs text-emerald-600 dark:text-emerald-400">{hint}</p>}
+      </CardContent>
+    </Card>
   );
 }
 

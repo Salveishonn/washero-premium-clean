@@ -101,3 +101,6 @@ verify_jwt = true
 
 [functions.validate-discount-code]
 verify_jwt = false
+
+[functions.whatsapp-marketing]
+verify_jwt = true

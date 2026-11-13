@@ -11,6 +11,11 @@ import {
   parseIngestReceiptArgs,
   shouldBotReply,
 } from "./whatsapp-inbox-ingest.ts";
+import {
+  captureLead,
+  deriveInboundLeadSignals,
+  deriveToolLeadSignal,
+} from "./customer-leads.ts";
 import { whatsappToolsSecretFromRequest, whatsappToolsSecretsConfigured } from "./whatsapp-cloud.ts";
 
 export const WHATSAPP_TOOLS_CORS_HEADERS = {
@@ -137,12 +142,25 @@ export async function handleWhatsAppToolsRequest(req: Request): Promise<Response
     });
 
     if (toolName === "ingest_message") {
+      const ingestArgs = parseIngestMessageArgs(body.args ?? {});
       const result = await ingestWhatsAppMessage(admin, {
         conversationRowId: conversationRow.id,
         customerPhone: phone,
         customerName: body.customer_name?.trim() || null,
-        args: parseIngestMessageArgs(body.args ?? {}),
+        args: ingestArgs,
       });
+      if (ingestArgs.direction === "inbound" && !result.duplicate && !body.is_test) {
+        await captureLead(admin, {
+          phone,
+          name: body.customer_name?.trim() || null,
+          touchContact: true,
+          consentReplyText: ingestArgs.message_text,
+          hits: deriveInboundLeadSignals({
+            messageText: ingestArgs.message_text,
+            replyId: String(body.args?.reply_id ?? ingestArgs.raw_payload.reply_id ?? ""),
+          }),
+        });
+      }
       return json(result, 200);
     }
 
@@ -171,6 +189,15 @@ export async function handleWhatsAppToolsRequest(req: Request): Promise<Response
       dryRun: false,
     };
     const result = await tool.execute(admin, body.args ?? {}, ctx);
+    const toolHit = body.is_test ? null : deriveToolLeadSignal(toolName, body.args, result);
+    if (toolHit) {
+      await captureLead(admin, {
+        phone,
+        name: body.customer_name?.trim() || null,
+        touchContact: false,
+        hits: [toolHit],
+      });
+    }
     if (toolName === "get_customer_by_phone" && result && typeof result === "object") {
       const assignmentStatus = await getAssignmentStatus(admin, conversationRow.id);
       return json({

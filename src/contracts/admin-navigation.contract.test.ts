@@ -14,6 +14,7 @@ const EXPECTED_VISIBLE = [
   "/admin/disponibilidad",
   "/admin/clientes",
   "/admin/mensajes",
+  "/admin/marketing",
   "/admin/finanzas",
   "/admin/comprobantes",
   "/admin/facturas",
@@ -35,9 +36,9 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
 };
 
 describe("admin navigation contract", () => {
-  it("exposes exactly nine visible destinations in job order", () => {
+  it("exposes exactly ten visible destinations in job order", () => {
     expect(ADMIN_NAV_VISIBLE_HREFS).toEqual([...EXPECTED_VISIBLE]);
-    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(9);
+    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(10);
     expect(ADMIN_NAV_SECTIONS.map((section) => section.label)).toEqual([
       "Operación",
       "Clientes",

@@ -45,6 +45,9 @@ export type AdminCustomerRecord = {
   updated_at: string;
   coverage_zone_name: string | null;
   formatted_address: string | null;
+  source?: string | null;
+  first_contact_at?: string | null;
+  last_contact_at?: string | null;
 };
 
 export type CustomerHistoryBooking = {
@@ -510,15 +513,19 @@ export function buildCustomerActivity(input: {
 }
 
 export async function fetchAdminCustomerById(customerId: string): Promise<AdminCustomerRecord | null> {
+  const base =
+    "id,full_name,phone,email,address,neighborhood,notes,created_at,updated_at,coverage_zone_name,formatted_address";
   const { data, error } = await supabase
     .from("customers")
-    .select(
-      "id,full_name,phone,email,address,neighborhood,notes,created_at,updated_at,coverage_zone_name,formatted_address",
-    )
+    .select(`${base},source,first_contact_at,last_contact_at`)
     .eq("id", customerId)
     .maybeSingle();
-  if (error) throw error;
-  return data;
+  if (!error) return data;
+  // Lead columns not migrated yet (42703 undefined_column): keep the dossier working.
+  if (error.code !== "42703") throw error;
+  const legacy = await supabase.from("customers").select(base).eq("id", customerId).maybeSingle();
+  if (legacy.error) throw legacy.error;
+  return legacy.data;
 }
 
 function asExtraCodes(value: unknown): string[] {

@@ -344,3 +344,25 @@ function listRowIds(json) {
 }
 
 console.log("n8n-washero-flow-router.test.mjs: ok");
+
+{
+  const j = run({ state: "none", norm: { message_type: "button", message_text: "Sí, quiero promos" } });
+  assert.equal(j.action, "reply");
+  assert.equal(j.next_state, "menu");
+  assert.match(j.log_text, /avisar por acá cuando haya promos/);
+}
+
+{
+  const j = run({ state: "pay", data: { misses: 1 }, norm: { message_type: "button", message_text: "No recibir promos" } });
+  assert.equal(j.action, "reply");
+  assert.equal(j.next_state, "none");
+  assert.match(j.log_text, /no te vamos a mandar más promociones/);
+}
+
+{
+  const j = run({ state: "none", norm: { message_type: "button", message_text: "Otra cosa" } });
+  assert.equal(j.next_state, "menu");
+  assert.doesNotMatch(j.log_text, /no puedo procesar/);
+}
+
+console.log("promo button replies ok");
