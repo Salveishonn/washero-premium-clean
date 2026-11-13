@@ -31,6 +31,7 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
   "/admin/leads-kipper": "src/routes/admin.leads-kipper.tsx",
   "/admin/mapa-demanda": "src/routes/admin.mapa-demanda.tsx",
   "/admin/precios": "src/routes/admin.precios.tsx",
+  "/admin/codigos-descuento": "src/routes/admin.codigos-descuento.tsx",
 };
 
 describe("admin navigation contract", () => {

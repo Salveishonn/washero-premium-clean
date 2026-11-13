@@ -83,6 +83,20 @@ function ConfigPage() {
         </CardHeader>
       </Card>
 
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+          <div>
+            <CardTitle className="text-base">Códigos de descuento</CardTitle>
+            <p className="text-sm font-normal text-muted-foreground">
+              Emitir, editar, revocar y definir vigencia
+            </p>
+          </div>
+          <Button asChild size="sm">
+            <Link to="/admin/codigos-descuento">Administrar códigos</Link>
+          </Button>
+        </CardHeader>
+      </Card>
+
       <Tabs defaultValue="servicios" className="space-y-4">
         <TabsList className="flex flex-wrap h-auto">
           <TabsTrigger value="servicios">Servicios</TabsTrigger>

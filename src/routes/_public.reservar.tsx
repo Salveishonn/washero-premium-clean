@@ -22,6 +22,8 @@ const searchSchema = z.object({
   gclid: z.string().optional(),
   gbraid: z.string().optional(),
   wbraid: z.string().optional(),
+  // Discount code pre-loaded from a shared link: /reservar?codigo=MIBARRIO10
+  codigo: z.coerce.string().optional(),
 });
 
 if (import.meta.env.DEV) {
@@ -61,7 +63,7 @@ function ReservarPage() {
       ) : null}
 
       {ADDRESS_FIRST_ENABLED ? (
-        <AddressFirstFlow attribution={attribution} />
+        <AddressFirstFlow attribution={attribution} initialDiscountCode={search.codigo} />
       ) : (
         <CalendarFirstFlow attribution={attribution} />
       )}

@@ -98,3 +98,6 @@ verify_jwt = true
 
 [functions.admin-booking-proofs]
 verify_jwt = true
+
+[functions.validate-discount-code]
+verify_jwt = false

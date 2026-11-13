@@ -447,9 +447,13 @@ export async function actionCalculateBookingPrice(
     return { ok: false, error: "invalid_extra", missing: quote2.missing };
   }
   const unit2 = quote2 as Exclude<typeof quote2, { ok: false }>;
-  const discount = Math.round(unit2.total_amount * SECOND_UNIT_DISCOUNT_RATE);
-  const unit2Total = unit2.total_amount - discount;
-  const total = unit1.total_amount + unit2Total;
+  // Same rule as booking-core: the 20% goes to the cheapest of the two washes.
+  const discountOnSecond = unit2.total_amount <= unit1.total_amount;
+  const discount = Math.round(
+    Math.min(unit1.total_amount, unit2.total_amount) * SECOND_UNIT_DISCOUNT_RATE,
+  );
+  const unit2Total = unit2.total_amount - (discountOnSecond ? discount : 0);
+  const total = unit1.total_amount + unit2.total_amount - discount;
 
   return {
     ok: true,
@@ -458,8 +462,11 @@ export async function actionCalculateBookingPrice(
     breakdown: {
       unit_1: unit1,
       unit_2: unit2,
-      unit_2_discount_rate: SECOND_UNIT_DISCOUNT_RATE,
-      unit_2_discount_amount: discount,
+      discount_rate: SECOND_UNIT_DISCOUNT_RATE,
+      discount_amount: discount,
+      discounted_unit: discountOnSecond ? 2 : 1,
+      unit_2_discount_rate: discountOnSecond ? SECOND_UNIT_DISCOUNT_RATE : 0,
+      unit_2_discount_amount: discountOnSecond ? discount : 0,
       unit_2_total: unit2Total,
     },
     formatted_total: new Intl.NumberFormat("es-AR", {

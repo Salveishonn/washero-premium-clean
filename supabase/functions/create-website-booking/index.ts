@@ -59,6 +59,7 @@ type Payload = {
   gclid?: string | null;
   gbraid?: string | null;
   wbraid?: string | null;
+  discount_code?: string | null;
 };
 
 const PUBLIC_MIN_LEAD_MINUTES = 120;
@@ -165,6 +166,7 @@ Deno.serve(async (req) => {
       private_neighborhood_name: body.private_neighborhood_name ?? null,
       private_lot: body.private_lot ?? null,
       private_extra_details: body.private_extra_details ?? null,
+      discount_code: typeof body.discount_code === "string" ? body.discount_code : null,
       enforce_coverage: true, // strict coverage on website
       source: "website",
     });
@@ -209,14 +211,21 @@ Deno.serve(async (req) => {
       ok: false,
       status: result.reason,
       missing: result.reason === "missing_fields" ? result.missing : undefined,
-      customer_message: map[result.reason] ?? result.message,
+      // The discount-code message says why the code was rejected (vencido, agotado, etc.).
+      customer_message:
+        result.reason === "invalid_discount_code"
+          ? result.message
+          : (map[result.reason] ?? result.message),
     }, result.http_status);
   }
 
   const { booking, service } = result;
+  // A discount code can bring the total to $0: nothing to charge, so skip the payment step.
+  const nothingToPay = booking.price <= 0;
   // MercadoPago + Transferencia: confirmation WhatsApp waits for payment/admin validation.
   const deferBookingConfirmationWhatsApp =
-    booking.payment_method === "MercadoPago" || booking.payment_method === "Transferencia";
+    !nothingToPay &&
+    (booking.payment_method === "MercadoPago" || booking.payment_method === "Transferencia");
   if (!deferBookingConfirmationWhatsApp) {
     scheduleBookingCreatedWhatsApp(admin, booking.id);
   }
@@ -230,6 +239,7 @@ Deno.serve(async (req) => {
     vehicle_count: result.vehicle_count,
     subtotal_before_discounts: result.subtotal_before_discounts,
     discount_total: result.discount_total,
+    discount_code: result.discount_code,
     units: result.units,
   };
   const baseResponse = {
@@ -239,6 +249,14 @@ Deno.serve(async (req) => {
     payment_status: "pending",
     summary: baseSummary,
   };
+
+  if (nothingToPay) {
+    return json({
+      ...baseResponse,
+      status: "booking_created",
+      customer_message: "Reserva recibida 🚗✨ Te vamos a confirmar los detalles por WhatsApp.",
+    });
+  }
 
   // Mercado Pago path
   if (booking.payment_method === "MercadoPago") {

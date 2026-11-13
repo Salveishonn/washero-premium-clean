@@ -12,11 +12,21 @@ import {
 } from "./slot-capacity.ts";
 import { parseArgentinaMobile } from "./argentina-phone.ts";
 import { scheduleNewBookingOperatorPush } from "./operator-push.ts";
+import {
+  DISCOUNT_CODE_REJECTION_MESSAGES,
+  SECOND_UNIT_DISCOUNT_RATE,
+  computeDiscountCodeAmount,
+  computeMultiUnitDiscountAmount,
+  describeDiscountCodeRule,
+  pickMultiUnitDiscountIndex,
+} from "./booking-discounts.ts";
+import { resolveUsableDiscountCode, type UsableDiscountCode } from "./discount-codes.ts";
+
+export { SECOND_UNIT_DISCOUNT_RATE };
 
 export const VEHICLE_TYPES = ["Auto", "SUV", "Pick-up", "Otro"] as const;
 export const PAYMENT_METHODS = ["Pagar después", "Transferencia", "MercadoPago"] as const;
 export const MAX_WEBSITE_BOOKING_UNITS = 2;
-export const SECOND_UNIT_DISCOUNT_RATE = 0.2;
 
 export type CoreBookingUnitInput = {
   vehicle_type: string;
@@ -88,6 +98,8 @@ export type CoreBookingInput = {
    * A replay with the same key returns the original booking instead of creating a second one.
    */
   idempotency_key?: string | null;
+  /** Customer-entered discount code. Rejected (no booking) when it is not usable. */
+  discount_code?: string | null;
 };
 
 export type CoreResult =
@@ -119,6 +131,7 @@ export type CoreResult =
       vehicle_count: number;
       subtotal_before_discounts: number;
       discount_total: number;
+      discount_code: { code: string; amount: number; label: string } | null;
       units: ReturnType<typeof buildUnitSummaryEntry>[];
     }
   | {
@@ -141,6 +154,7 @@ export type CoreResult =
         | "outside_coverage"
         | "invalid_private_neighborhood"
         | "too_many_units"
+        | "invalid_discount_code"
         | "server_error";
       missing?: string[];
       message: string;
@@ -694,10 +708,10 @@ async function priceBookingUnit(
   const vehicle_surcharge = vehicle.amount;
   const extras_total = extrasResult.total;
   const subtotal_before_discount = service_price + vehicle_surcharge + extras_total;
-  const discount_rate = unitIndex === 2 ? SECOND_UNIT_DISCOUNT_RATE : 0;
-  const discount_amount =
-    discount_rate > 0 ? Math.round(subtotal_before_discount * discount_rate) : 0;
-  const total_price = subtotal_before_discount - discount_amount;
+  // The multi-wash discount depends on the other units; see applyMultiUnitDiscount().
+  const discount_rate = 0;
+  const discount_amount = 0;
+  const total_price = subtotal_before_discount;
 
   const unit_price_breakdown: Record<string, unknown> = {
     service: {
@@ -731,10 +745,7 @@ async function priceBookingUnit(
           ]
         : []),
       ...extrasResult.items.map((item) => ({ label: item.name, amount: item.amount })),
-      ...(discount_amount > 0
-        ? [{ label: `Descuento ${Math.round(discount_rate * 100)}%`, amount: -discount_amount }]
-        : []),
-    ],
+    ] as Array<{ label: string; amount: number }>,
   };
 
   return {
@@ -761,6 +772,28 @@ async function priceBookingUnit(
       unit_price_breakdown,
     },
   };
+}
+
+/**
+ * Booking two or more washes in one visit gives 20% OFF on the cheapest one, whichever
+ * position it was entered in. Mutates the priced units in place.
+ */
+function applyMultiUnitDiscount(units: PricedBookingUnit[]) {
+  const index = pickMultiUnitDiscountIndex(units.map((unit) => unit.subtotal_before_discount));
+  if (index == null) return;
+  const unit = units[index];
+  const amount = computeMultiUnitDiscountAmount(unit.subtotal_before_discount);
+  if (amount <= 0) return;
+  unit.discount_rate = SECOND_UNIT_DISCOUNT_RATE;
+  unit.discount_amount = amount;
+  unit.total_price = unit.subtotal_before_discount - amount;
+  unit.unit_price_breakdown.discount_rate = unit.discount_rate;
+  unit.unit_price_breakdown.discount_amount = amount;
+  unit.unit_price_breakdown.total = unit.total_price;
+  (unit.unit_price_breakdown.lines as Array<{ label: string; amount: number }>).push({
+    label: `Descuento ${Math.round(unit.discount_rate * 100)}%`,
+    amount: -amount,
+  });
 }
 
 function buildUnitSummaryEntry(priced: PricedBookingUnit) {
@@ -971,6 +1004,7 @@ export async function tryCreateBooking(
     }
     pricedUnits.push(unitResult.priced);
   }
+  applyMultiUnitDiscount(pricedUnits);
 
   const primary = pricedUnits[0];
   const service = primary.service;
@@ -1087,7 +1121,40 @@ export async function tryCreateBooking(
     final_price = admin_price_override;
     admin_discount = Math.max(0, catalog_total - final_price);
   }
-  const effective_discount_total = discount_total + admin_discount;
+
+  // Discount code: applied on the total after the multi-wash promo. A manual admin price
+  // already is the final price, so a code is ignored there.
+  let applied_code: UsableDiscountCode | null = null;
+  let code_discount = 0;
+  let code_label = "";
+  const discount_code_in = input.discount_code ? String(input.discount_code).trim() : "";
+  if (discount_code_in && admin_price_override == null) {
+    let lookup: Awaited<ReturnType<typeof resolveUsableDiscountCode>>;
+    try {
+      lookup = await resolveUsableDiscountCode(admin, discount_code_in);
+    } catch (e) {
+      console.error("[booking-core] discount code lookup failed", e);
+      return {
+        ok: false,
+        reason: "server_error",
+        message: "No pudimos validar el código de descuento.",
+        http_status: 500,
+      };
+    }
+    if (!lookup.ok) {
+      return {
+        ok: false,
+        reason: "invalid_discount_code",
+        message: DISCOUNT_CODE_REJECTION_MESSAGES[lookup.reason],
+        http_status: 422,
+      };
+    }
+    applied_code = lookup.code;
+    code_discount = computeDiscountCodeAmount(applied_code, catalog_total);
+    code_label = `Código ${applied_code.code} (${describeDiscountCodeRule(applied_code)})`;
+    final_price = catalog_total - code_discount;
+  }
+  const effective_discount_total = discount_total + admin_discount + code_discount;
 
   const price_breakdown: Record<string, unknown> = {
     service: {
@@ -1113,6 +1180,17 @@ export async function tryCreateBooking(
     discount_total: effective_discount_total,
     vehicle_count,
     ...(vehicle_count > 1 ? { second_unit_discount_rate: SECOND_UNIT_DISCOUNT_RATE } : {}),
+    ...(applied_code
+      ? {
+          discount_code: {
+            id: applied_code.id,
+            code: applied_code.code,
+            discount_type: applied_code.discount_type,
+            discount_value: applied_code.discount_value,
+            amount: code_discount,
+          },
+        }
+      : {}),
     ...(admin_price_override != null
       ? {
           manual_price_override: true,
@@ -1159,6 +1237,7 @@ export async function tryCreateBooking(
               },
             ]
           : []),
+      ...(applied_code && code_discount > 0 ? [{ label: code_label, amount: -code_discount }] : []),
     ],
   };
   if (input.botmaker_meta && Object.keys(input.botmaker_meta).length) {
@@ -1240,6 +1319,7 @@ export async function tryCreateBooking(
         : `Precio manual admin: $${admin_price_override} (catálogo $${catalog_total})`,
     );
   }
+  if (applied_code) notes_parts.push(`${code_label}: -$${code_discount}`);
   if (input.is_test) notes_parts.push("[TEST]");
   const notes = notes_parts.length ? notes_parts.join(" | ") : null;
 
@@ -1420,6 +1500,24 @@ export async function tryCreateBooking(
     price: result.price,
   };
 
+  if (applied_code && !result.already_existed) {
+    const { error: redemptionErr } = await admin.from("discount_code_redemptions").insert({
+      discount_code_id: applied_code.id,
+      booking_id: created.id,
+      code: applied_code.code,
+      amount: code_discount,
+    });
+    // The booking already carries the discount in price + price_breakdown; a failed usage
+    // record must not fail the reservation.
+    if (redemptionErr) {
+      console.error("[booking-core] discount redemption insert failed", {
+        booking_id: created.id,
+        code: applied_code.code,
+        message: redemptionErr.message,
+      });
+    }
+  }
+
   if (!input.is_test && !skipSlotChecks) {
     scheduleNewBookingOperatorPush(created.id);
   }
@@ -1457,6 +1555,9 @@ export async function tryCreateBooking(
     vehicle_count,
     subtotal_before_discounts,
     discount_total: effective_discount_total,
+    discount_code: applied_code
+      ? { code: applied_code.code, amount: code_discount, label: code_label }
+      : null,
     units: unitSummaries,
   };
 }
