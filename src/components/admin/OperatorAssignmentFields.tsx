@@ -230,7 +230,7 @@ export function OperatorAssignmentFields({
               <SelectItem value="__none__">Sin asignar (todos los operadores)</SelectItem>
               {(staffQuery.data ?? []).map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {s.email ?? (compact ? "Operador" : s.id.slice(0, 8))} ({s.role})
+                  {s.full_name?.trim() || s.email || (compact ? "Operador" : s.id.slice(0, 8))} ({s.role === "operator" ? "driver" : s.role})
                 </SelectItem>
               ))}
             </SelectContent>

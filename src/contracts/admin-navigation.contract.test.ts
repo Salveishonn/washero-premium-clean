@@ -11,7 +11,10 @@ import { readRepoFile, REPO_ROOT } from "./read-repo-file";
 
 const EXPECTED_VISIBLE = [
   "/admin",
+  "/admin/agenda",
   "/admin/disponibilidad",
+  "/admin/drivers",
+  "/admin/intranet",
   "/admin/clientes",
   "/admin/mensajes",
   "/admin/marketing",
@@ -36,9 +39,9 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
 };
 
 describe("admin navigation contract", () => {
-  it("exposes exactly ten visible destinations in job order", () => {
+  it("exposes exactly thirteen visible destinations in job order", () => {
     expect(ADMIN_NAV_VISIBLE_HREFS).toEqual([...EXPECTED_VISIBLE]);
-    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(10);
+    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(13);
     expect(ADMIN_NAV_SECTIONS.map((section) => section.label)).toEqual([
       "Operación",
       "Clientes",

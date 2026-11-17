@@ -1,8 +1,9 @@
-/** Register operator service worker in production only (safe for local dev). */
+/** Register the staff (driver + admin) service worker in production only. */
 export function registerOperatorServiceWorker(): void {
   if (import.meta.env.DEV) return;
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-  if (!window.location.pathname.startsWith("/operator")) return;
+  const path = window.location.pathname;
+  if (!path.startsWith("/operator") && !path.startsWith("/admin")) return;
 
   void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((err) => {
     console.warn("[operator-pwa] service worker registration failed", err);

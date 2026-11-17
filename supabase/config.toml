@@ -104,3 +104,6 @@ verify_jwt = false
 
 [functions.whatsapp-marketing]
 verify_jwt = true
+
+[functions.admin-manage-staff]
+verify_jwt = true

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { CalendarDays, CalendarRange, ClipboardList, MessageSquare, User } from "lucide-react";
+import { CalendarDays, CalendarRange, ClipboardList, MessageSquare, Radio } from "lucide-react";
+import { useMyStaff, useStaffInbox, useStaffMessagesRealtime } from "@/hooks/use-staff";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -8,11 +9,14 @@ const items = [
   { to: "/operator/semana", label: "Semana", icon: CalendarRange },
   { to: "/operator/pendientes", label: "Pendientes", icon: ClipboardList },
   { to: "/operator/mensajes", label: "Mensajes", icon: MessageSquare },
-  { to: "/operator/perfil", label: "Perfil", icon: User },
+  { to: "/operator/intranet", label: "Intranet", icon: Radio },
 ] as const;
 
 export function OperatorBottomNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const me = useMyStaff();
+  const inbox = useStaffInbox(me.staffId);
+  useStaffMessagesRealtime();
 
   return (
     <nav
@@ -38,7 +42,14 @@ export function OperatorBottomNav() {
                 active ? "text-primary" : "text-muted-foreground",
               )}
             >
-              <Icon className="h-5 w-5" />
+              <span className="relative">
+                <Icon className="h-5 w-5" />
+                {to === "/operator/intranet" && inbox.totalUnread > 0 ? (
+                  <span className="absolute -right-2 -top-1 min-w-4 rounded-full bg-destructive px-1 text-center text-[9px] font-bold leading-4 text-white">
+                    {inbox.totalUnread > 9 ? "9+" : inbox.totalUnread}
+                  </span>
+                ) : null}
+              </span>
               {label}
             </Link>
           );
