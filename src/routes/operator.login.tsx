@@ -47,7 +47,7 @@ function OperatorLogin() {
           <div className="flex justify-center">
             <Logo />
           </div>
-          <CardTitle>Washero Operador</CardTitle>
+          <CardTitle>Washero Driver</CardTitle>
           <p className="text-sm text-muted-foreground">Acceso para lavadores y operadores en campo.</p>
         </CardHeader>
         <CardContent>

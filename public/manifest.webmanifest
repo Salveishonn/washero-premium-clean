@@ -1,9 +1,9 @@
 {
   "id": "washero-operator",
-  "name": "Washero Operador",
-  "short_name": "Washero",
+  "name": "Washero Driver",
+  "short_name": "Washero Driver",
   "description": "Operaciones de lavado Washero",
-  "start_url": "/operator",
+  "start_url": "/operator/hoy",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

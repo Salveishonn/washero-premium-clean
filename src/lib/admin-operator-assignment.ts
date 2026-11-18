@@ -8,9 +8,18 @@ export type AdminOperatorStaffListItem = {
   email: string | null;
   role: string;
   active: boolean;
+  full_name?: string | null;
 };
 
 export async function fetchAdminOperatorStaffList(): Promise<AdminOperatorStaffListItem[]> {
+  // full_name comes from migration 20261117120000; fall back if not applied yet.
+  const withName = await supabase
+    .from("admin_users")
+    .select("id, email, role, active, full_name" as "id, email, role, active")
+    .eq("active", true)
+    .in("role", ["owner", "admin", "operator"])
+    .order("email");
+  if (!withName.error) return (withName.data ?? []) as AdminOperatorStaffListItem[];
   const { data, error } = await supabase
     .from("admin_users")
     .select("id, email, role, active")

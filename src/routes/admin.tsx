@@ -1,17 +1,35 @@
 import { createFileRoute, Outlet, useRouterState, useNavigate, Link } from "@tanstack/react-router";
-import { Loader2, LogOut } from "lucide-react";
+import { Loader2, LogOut, Truck } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AdminSidebar } from "@/components/layout/AdminSidebar";
+import { AdminMobileNav } from "@/components/layout/AdminMobileNav";
+import { registerOperatorServiceWorker } from "@/lib/operator-pwa";
 import { Button } from "@/components/ui/button";
 import { useAdminAuth } from "@/hooks/use-admin-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect } from "react";
 
 export const Route = createFileRoute("/admin")({
+  head: () => ({
+    meta: [
+      { name: "theme-color", content: "#111111" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "apple-mobile-web-app-title", content: "Washero Admin" },
+      { name: "mobile-web-app-capable", content: "yes" },
+    ],
+    links: [
+      { rel: "manifest", href: "/manifest-admin.webmanifest" },
+      { rel: "apple-touch-icon", href: "/icons/icon-admin-192.svg" },
+    ],
+  }),
   component: AdminLayout,
 });
 
 function AdminLayout() {
+  useEffect(() => {
+    registerOperatorServiceWorker();
+  }, []);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   // Login page renders standalone, no auth gate, no sidebar.
@@ -49,12 +67,20 @@ function AdminGuarded() {
       <div className="flex min-h-screen min-w-0 w-full bg-background">
         <AdminSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 min-w-0 items-center justify-between gap-2 border-b border-border/60 bg-background px-3">
+          <header className="sticky top-0 z-30 flex min-h-14 min-w-0 items-center justify-between gap-2 border-b border-border/60 bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur">
             <div className="flex items-center gap-2">
-              <SidebarTrigger />
-              <span className="text-sm font-medium text-muted-foreground">Panel Washero</span>
+              <SidebarTrigger className="hidden md:inline-flex" />
+              <span className="text-sm font-medium text-muted-foreground">
+                <span className="md:hidden">Washero Admin</span>
+                <span className="hidden md:inline">Panel Washero</span>
+              </span>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 sm:gap-3">
+              <Button asChild variant="outline" size="sm" className="h-8">
+                <Link to="/operator/hoy">
+                  <Truck className="mr-1 h-4 w-4" /> Modo driver
+                </Link>
+              </Button>
               <span className="hidden text-xs text-muted-foreground sm:inline">
                 {auth.session.user.email}
               </span>
@@ -66,13 +92,15 @@ function AdminGuarded() {
                   navigate({ to: "/admin/login" });
                 }}
               >
-                <LogOut className="mr-1 h-4 w-4" /> Salir
+                <LogOut className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Salir</span>
               </Button>
             </div>
           </header>
-          <main className="min-w-0 flex-1 p-6">
+          <main className="min-w-0 flex-1 p-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:p-4 md:p-6">
             <Outlet />
           </main>
+          <AdminMobileNav />
         </div>
       </div>
     </SidebarProvider>
