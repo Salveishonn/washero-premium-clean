@@ -11,8 +11,11 @@ vi.mock("@/components/brand/Logo", () => ({
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
-  useRouterState: ({ select }: { select: (state: { location: { pathname: string } }) => unknown }) =>
-    select({ location: { pathname: "/admin" } }),
+  useRouterState: ({
+    select,
+  }: {
+    select: (state: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: "/admin" } }),
 }));
 
 beforeEach(() => {
@@ -40,6 +43,7 @@ const VISIBLE_LABELS = [
   "Clientes",
   "Mensajes",
   "Marketing",
+  "Studio",
   "Finanzas",
   "Comprobantes",
   "Facturas",
@@ -50,7 +54,7 @@ const VISIBLE_LABELS = [
 describe("AdminSidebar", () => {
   afterEach(() => cleanup());
 
-  it("renders exactly the thirteen job destinations and hides technical routes", () => {
+  it("renders exactly the fourteen job destinations and hides technical routes", () => {
     render(
       <SidebarProvider>
         <AdminSidebar />
@@ -58,7 +62,7 @@ describe("AdminSidebar", () => {
     );
 
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(13);
+    expect(links).toHaveLength(14);
     expect(links.map((link) => link.getAttribute("href"))).toEqual([...ADMIN_NAV_VISIBLE_HREFS]);
     for (const label of VISIBLE_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();

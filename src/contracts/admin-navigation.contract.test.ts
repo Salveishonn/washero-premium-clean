@@ -18,6 +18,7 @@ const EXPECTED_VISIBLE = [
   "/admin/clientes",
   "/admin/mensajes",
   "/admin/marketing",
+  "/admin/studio",
   "/admin/finanzas",
   "/admin/comprobantes",
   "/admin/facturas",
@@ -39,9 +40,9 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
 };
 
 describe("admin navigation contract", () => {
-  it("exposes exactly thirteen visible destinations in job order", () => {
+  it("exposes exactly fourteen visible destinations in job order", () => {
     expect(ADMIN_NAV_VISIBLE_HREFS).toEqual([...EXPECTED_VISIBLE]);
-    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(13);
+    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(14);
     expect(ADMIN_NAV_SECTIONS.map((section) => section.label)).toEqual([
       "Operación",
       "Clientes",
@@ -79,7 +80,7 @@ describe("admin navigation contract", () => {
     const config = readRepoFile("src/routes/admin.configuracion.tsx");
     expect(config).toContain('to="/admin/precios"');
     expect(config).toContain("Administrar precios");
-    expect(config).not.toContain("createFileRoute(\"/admin/precios\")");
+    expect(config).not.toContain('createFileRoute("/admin/precios")');
   });
 });
 
