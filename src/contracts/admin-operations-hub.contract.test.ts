@@ -79,7 +79,7 @@ describe("admin operations hub query batching contract", () => {
   it("lets the admin content column shrink so the filter strip owns horizontal scroll", () => {
     const shell = readRepoFile("src/routes/admin.tsx");
     expect(shell).toContain('className="flex min-w-0 flex-1 flex-col"');
-    expect(shell).toContain('className="min-w-0 flex-1 p-6"');
+    expect(shell).toContain('className="min-w-0 flex-1 p-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:p-4 md:p-6"');
     expect(shell).toContain("flex min-h-screen min-w-0 w-full");
 
     const filters = readRepoFile("src/components/admin/ops/OperationsDayFilters.tsx");

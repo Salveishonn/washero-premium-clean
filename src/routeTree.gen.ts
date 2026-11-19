@@ -17,6 +17,7 @@ import { Route as PublicGraciasRouteImport } from './routes/_public.gracias'
 import { Route as PublicPrivacyRouteImport } from './routes/_public.privacy'
 import { Route as PublicReservarRouteImport } from './routes/_public.reservar'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminAgendaRouteImport } from './routes/admin.agenda'
 import { Route as AdminAgenteWhatsappRouteImport } from './routes/admin.agente-whatsapp'
 import { Route as AdminAppConfigRouteImport } from './routes/admin.app-config'
 import { Route as AdminBotmakerRouteImport } from './routes/admin.botmaker'
@@ -26,9 +27,11 @@ import { Route as AdminCodigosDescuentoRouteImport } from './routes/admin.codigo
 import { Route as AdminComprobantesRouteImport } from './routes/admin.comprobantes'
 import { Route as AdminConfiguracionRouteImport } from './routes/admin.configuracion'
 import { Route as AdminDisponibilidadRouteImport } from './routes/admin.disponibilidad'
+import { Route as AdminDriversRouteImport } from './routes/admin.drivers'
 import { Route as AdminEarlyAccessRouteImport } from './routes/admin.early-access'
 import { Route as AdminFacturasRouteImport } from './routes/admin.facturas'
 import { Route as AdminFinanzasRouteImport } from './routes/admin.finanzas'
+import { Route as AdminIntranetRouteImport } from './routes/admin.intranet'
 import { Route as AdminLeadsKipperRouteImport } from './routes/admin.leads-kipper'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
 import { Route as AdminMapaDemandaRouteImport } from './routes/admin.mapa-demanda'
@@ -41,6 +44,7 @@ import { Route as AdminSuscripcionesRouteImport } from './routes/admin.suscripci
 import { Route as AdminWhatsappConfigRouteImport } from './routes/admin.whatsapp-config'
 import { Route as OperatorIndexRouteImport } from './routes/operator.index'
 import { Route as OperatorHoyRouteImport } from './routes/operator.hoy'
+import { Route as OperatorIntranetRouteImport } from './routes/operator.intranet'
 import { Route as OperatorLoginRouteImport } from './routes/operator.login'
 import { Route as OperatorMensajesRouteImport } from './routes/operator.mensajes'
 import { Route as OperatorPendientesRouteImport } from './routes/operator.pendientes'
@@ -92,6 +96,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminAgendaRoute = AdminAgendaRouteImport.update({
+  id: '/agenda',
+  path: '/agenda',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminAgenteWhatsappRoute = AdminAgenteWhatsappRouteImport.update({
   id: '/agente-whatsapp',
   path: '/agente-whatsapp',
@@ -137,6 +146,11 @@ const AdminDisponibilidadRoute = AdminDisponibilidadRouteImport.update({
   path: '/disponibilidad',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminDriversRoute = AdminDriversRouteImport.update({
+  id: '/drivers',
+  path: '/drivers',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminEarlyAccessRoute = AdminEarlyAccessRouteImport.update({
   id: '/early-access',
   path: '/early-access',
@@ -150,6 +164,11 @@ const AdminFacturasRoute = AdminFacturasRouteImport.update({
 const AdminFinanzasRoute = AdminFinanzasRouteImport.update({
   id: '/finanzas',
   path: '/finanzas',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminIntranetRoute = AdminIntranetRouteImport.update({
+  id: '/intranet',
+  path: '/intranet',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminLeadsKipperRoute = AdminLeadsKipperRouteImport.update({
@@ -210,6 +229,11 @@ const OperatorIndexRoute = OperatorIndexRouteImport.update({
 const OperatorHoyRoute = OperatorHoyRouteImport.update({
   id: '/hoy',
   path: '/hoy',
+  getParentRoute: () => OperatorRoute,
+} as any)
+const OperatorIntranetRoute = OperatorIntranetRouteImport.update({
+  id: '/intranet',
+  path: '/intranet',
   getParentRoute: () => OperatorRoute,
 } as any)
 const OperatorLoginRoute = OperatorLoginRouteImport.update({
@@ -277,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/gracias': typeof PublicGraciasRoute
   '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
+  '/admin/agenda': typeof AdminAgendaRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
   '/admin/botmaker': typeof AdminBotmakerRoute
@@ -286,9 +311,11 @@ export interface FileRoutesByFullPath {
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
+  '/admin/drivers': typeof AdminDriversRoute
   '/admin/early-access': typeof AdminEarlyAccessRoute
   '/admin/facturas': typeof AdminFacturasRoute
   '/admin/finanzas': typeof AdminFinanzasRoute
+  '/admin/intranet': typeof AdminIntranetRoute
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
@@ -300,6 +327,7 @@ export interface FileRoutesByFullPath {
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
+  '/operator/intranet': typeof OperatorIntranetRoute
   '/operator/login': typeof OperatorLoginRoute
   '/operator/mensajes': typeof OperatorMensajesRoute
   '/operator/pendientes': typeof OperatorPendientesRoute
@@ -318,6 +346,7 @@ export interface FileRoutesByTo {
   '/gracias': typeof PublicGraciasRoute
   '/privacy': typeof PublicPrivacyRoute
   '/reservar': typeof PublicReservarRoute
+  '/admin/agenda': typeof AdminAgendaRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
   '/admin/botmaker': typeof AdminBotmakerRoute
@@ -327,9 +356,11 @@ export interface FileRoutesByTo {
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
+  '/admin/drivers': typeof AdminDriversRoute
   '/admin/early-access': typeof AdminEarlyAccessRoute
   '/admin/facturas': typeof AdminFacturasRoute
   '/admin/finanzas': typeof AdminFinanzasRoute
+  '/admin/intranet': typeof AdminIntranetRoute
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
@@ -341,6 +372,7 @@ export interface FileRoutesByTo {
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
+  '/operator/intranet': typeof OperatorIntranetRoute
   '/operator/login': typeof OperatorLoginRoute
   '/operator/mensajes': typeof OperatorMensajesRoute
   '/operator/pendientes': typeof OperatorPendientesRoute
@@ -364,6 +396,7 @@ export interface FileRoutesById {
   '/_public/gracias': typeof PublicGraciasRoute
   '/_public/privacy': typeof PublicPrivacyRoute
   '/_public/reservar': typeof PublicReservarRoute
+  '/admin/agenda': typeof AdminAgendaRoute
   '/admin/agente-whatsapp': typeof AdminAgenteWhatsappRoute
   '/admin/app-config': typeof AdminAppConfigRoute
   '/admin/botmaker': typeof AdminBotmakerRoute
@@ -373,9 +406,11 @@ export interface FileRoutesById {
   '/admin/comprobantes': typeof AdminComprobantesRoute
   '/admin/configuracion': typeof AdminConfiguracionRoute
   '/admin/disponibilidad': typeof AdminDisponibilidadRoute
+  '/admin/drivers': typeof AdminDriversRoute
   '/admin/early-access': typeof AdminEarlyAccessRoute
   '/admin/facturas': typeof AdminFacturasRoute
   '/admin/finanzas': typeof AdminFinanzasRoute
+  '/admin/intranet': typeof AdminIntranetRoute
   '/admin/leads-kipper': typeof AdminLeadsKipperRoute
   '/admin/login': typeof AdminLoginRoute
   '/admin/mapa-demanda': typeof AdminMapaDemandaRoute
@@ -387,6 +422,7 @@ export interface FileRoutesById {
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
+  '/operator/intranet': typeof OperatorIntranetRoute
   '/operator/login': typeof OperatorLoginRoute
   '/operator/mensajes': typeof OperatorMensajesRoute
   '/operator/pendientes': typeof OperatorPendientesRoute
@@ -411,6 +447,7 @@ export interface FileRouteTypes {
     | '/gracias'
     | '/privacy'
     | '/reservar'
+    | '/admin/agenda'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
     | '/admin/botmaker'
@@ -420,9 +457,11 @@ export interface FileRouteTypes {
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
+    | '/admin/drivers'
     | '/admin/early-access'
     | '/admin/facturas'
     | '/admin/finanzas'
+    | '/admin/intranet'
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
@@ -434,6 +473,7 @@ export interface FileRouteTypes {
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
+    | '/operator/intranet'
     | '/operator/login'
     | '/operator/mensajes'
     | '/operator/pendientes'
@@ -452,6 +492,7 @@ export interface FileRouteTypes {
     | '/gracias'
     | '/privacy'
     | '/reservar'
+    | '/admin/agenda'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
     | '/admin/botmaker'
@@ -461,9 +502,11 @@ export interface FileRouteTypes {
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
+    | '/admin/drivers'
     | '/admin/early-access'
     | '/admin/facturas'
     | '/admin/finanzas'
+    | '/admin/intranet'
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
@@ -475,6 +518,7 @@ export interface FileRouteTypes {
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
+    | '/operator/intranet'
     | '/operator/login'
     | '/operator/mensajes'
     | '/operator/pendientes'
@@ -497,6 +541,7 @@ export interface FileRouteTypes {
     | '/_public/gracias'
     | '/_public/privacy'
     | '/_public/reservar'
+    | '/admin/agenda'
     | '/admin/agente-whatsapp'
     | '/admin/app-config'
     | '/admin/botmaker'
@@ -506,9 +551,11 @@ export interface FileRouteTypes {
     | '/admin/comprobantes'
     | '/admin/configuracion'
     | '/admin/disponibilidad'
+    | '/admin/drivers'
     | '/admin/early-access'
     | '/admin/facturas'
     | '/admin/finanzas'
+    | '/admin/intranet'
     | '/admin/leads-kipper'
     | '/admin/login'
     | '/admin/mapa-demanda'
@@ -520,6 +567,7 @@ export interface FileRouteTypes {
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
+    | '/operator/intranet'
     | '/operator/login'
     | '/operator/mensajes'
     | '/operator/pendientes'
@@ -600,6 +648,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/agenda': {
+      id: '/admin/agenda'
+      path: '/agenda'
+      fullPath: '/admin/agenda'
+      preLoaderRoute: typeof AdminAgendaRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/agente-whatsapp': {
       id: '/admin/agente-whatsapp'
       path: '/agente-whatsapp'
@@ -663,6 +718,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDisponibilidadRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/drivers': {
+      id: '/admin/drivers'
+      path: '/drivers'
+      fullPath: '/admin/drivers'
+      preLoaderRoute: typeof AdminDriversRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/early-access': {
       id: '/admin/early-access'
       path: '/early-access'
@@ -682,6 +744,13 @@ declare module '@tanstack/react-router' {
       path: '/finanzas'
       fullPath: '/admin/finanzas'
       preLoaderRoute: typeof AdminFinanzasRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/intranet': {
+      id: '/admin/intranet'
+      path: '/intranet'
+      fullPath: '/admin/intranet'
+      preLoaderRoute: typeof AdminIntranetRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/leads-kipper': {
@@ -766,6 +835,13 @@ declare module '@tanstack/react-router' {
       path: '/hoy'
       fullPath: '/operator/hoy'
       preLoaderRoute: typeof OperatorHoyRouteImport
+      parentRoute: typeof OperatorRoute
+    }
+    '/operator/intranet': {
+      id: '/operator/intranet'
+      path: '/intranet'
+      fullPath: '/operator/intranet'
+      preLoaderRoute: typeof OperatorIntranetRouteImport
       parentRoute: typeof OperatorRoute
     }
     '/operator/login': {
@@ -870,6 +946,7 @@ const PublicRouteWithChildren =
   PublicRoute._addFileChildren(PublicRouteChildren)
 
 interface AdminRouteChildren {
+  AdminAgendaRoute: typeof AdminAgendaRoute
   AdminAgenteWhatsappRoute: typeof AdminAgenteWhatsappRoute
   AdminAppConfigRoute: typeof AdminAppConfigRoute
   AdminBotmakerRoute: typeof AdminBotmakerRoute
@@ -879,9 +956,11 @@ interface AdminRouteChildren {
   AdminComprobantesRoute: typeof AdminComprobantesRoute
   AdminConfiguracionRoute: typeof AdminConfiguracionRoute
   AdminDisponibilidadRoute: typeof AdminDisponibilidadRoute
+  AdminDriversRoute: typeof AdminDriversRoute
   AdminEarlyAccessRoute: typeof AdminEarlyAccessRoute
   AdminFacturasRoute: typeof AdminFacturasRoute
   AdminFinanzasRoute: typeof AdminFinanzasRoute
+  AdminIntranetRoute: typeof AdminIntranetRoute
   AdminLeadsKipperRoute: typeof AdminLeadsKipperRoute
   AdminLoginRoute: typeof AdminLoginRoute
   AdminMapaDemandaRoute: typeof AdminMapaDemandaRoute
@@ -899,6 +978,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAgendaRoute: AdminAgendaRoute,
   AdminAgenteWhatsappRoute: AdminAgenteWhatsappRoute,
   AdminAppConfigRoute: AdminAppConfigRoute,
   AdminBotmakerRoute: AdminBotmakerRoute,
@@ -908,9 +988,11 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminComprobantesRoute: AdminComprobantesRoute,
   AdminConfiguracionRoute: AdminConfiguracionRoute,
   AdminDisponibilidadRoute: AdminDisponibilidadRoute,
+  AdminDriversRoute: AdminDriversRoute,
   AdminEarlyAccessRoute: AdminEarlyAccessRoute,
   AdminFacturasRoute: AdminFacturasRoute,
   AdminFinanzasRoute: AdminFinanzasRoute,
+  AdminIntranetRoute: AdminIntranetRoute,
   AdminLeadsKipperRoute: AdminLeadsKipperRoute,
   AdminLoginRoute: AdminLoginRoute,
   AdminMapaDemandaRoute: AdminMapaDemandaRoute,
@@ -931,6 +1013,7 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface OperatorRouteChildren {
   OperatorHoyRoute: typeof OperatorHoyRoute
+  OperatorIntranetRoute: typeof OperatorIntranetRoute
   OperatorLoginRoute: typeof OperatorLoginRoute
   OperatorMensajesRoute: typeof OperatorMensajesRoute
   OperatorPendientesRoute: typeof OperatorPendientesRoute
@@ -942,6 +1025,7 @@ interface OperatorRouteChildren {
 
 const OperatorRouteChildren: OperatorRouteChildren = {
   OperatorHoyRoute: OperatorHoyRoute,
+  OperatorIntranetRoute: OperatorIntranetRoute,
   OperatorLoginRoute: OperatorLoginRoute,
   OperatorMensajesRoute: OperatorMensajesRoute,
   OperatorPendientesRoute: OperatorPendientesRoute,

@@ -33,9 +33,13 @@ beforeEach(() => {
 
 const VISIBLE_LABELS = [
   "Operación",
+  "Agenda",
   "Disponibilidad",
+  "Drivers",
+  "Intranet",
   "Clientes",
   "Mensajes",
+  "Bot WhatsApp",
   "Marketing",
   "Finanzas",
   "Comprobantes",
@@ -47,7 +51,7 @@ const VISIBLE_LABELS = [
 describe("AdminSidebar", () => {
   afterEach(() => cleanup());
 
-  it("renders exactly the ten job destinations and hides technical routes", () => {
+  it("renders exactly the fourteen job destinations and hides technical routes", () => {
     render(
       <SidebarProvider>
         <AdminSidebar />
@@ -55,7 +59,7 @@ describe("AdminSidebar", () => {
     );
 
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(10);
+    expect(links).toHaveLength(14);
     expect(links.map((link) => link.getAttribute("href"))).toEqual([...ADMIN_NAV_VISIBLE_HREFS]);
     for (const label of VISIBLE_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();

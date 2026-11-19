@@ -15,7 +15,10 @@ export const ADMIN_NAV_SECTIONS: readonly AdminNavSection[] = [
     label: "Operación",
     items: [
       { title: "Operación", to: "/admin" },
+      { title: "Agenda", to: "/admin/agenda" },
       { title: "Disponibilidad", to: "/admin/disponibilidad" },
+      { title: "Drivers", to: "/admin/drivers" },
+      { title: "Intranet", to: "/admin/intranet" },
     ],
   },
   {

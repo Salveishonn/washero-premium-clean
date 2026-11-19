@@ -10,6 +10,9 @@ import {
   TrendingUp,
   FileText,
   ImageIcon,
+  CalendarDays,
+  Truck,
+  Radio,
 } from "lucide-react";
 import {
   Sidebar,
@@ -21,6 +24,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Logo } from "@/components/brand/Logo";
 import { ADMIN_NAV_SECTIONS, isAdminNavActive } from "@/lib/admin-nav";
@@ -28,7 +32,10 @@ import type { LucideIcon } from "lucide-react";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
   "/admin": LayoutDashboard,
+  "/admin/agenda": CalendarDays,
   "/admin/disponibilidad": CalendarClock,
+  "/admin/drivers": Truck,
+  "/admin/intranet": Radio,
   "/admin/clientes": Users,
   "/admin/mensajes": MessageSquare,
   "/admin/marketing": Megaphone,
@@ -41,6 +48,7 @@ const NAV_ICONS: Record<string, LucideIcon> = {
 
 export function AdminSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isMobile, setOpenMobile } = useSidebar();
 
   return (
     <Sidebar collapsible="icon">
@@ -65,7 +73,13 @@ export function AdminSidebar() {
                         tooltip={item.title}
                       >
                         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                        <Link to={item.to as any} className="flex items-center gap-2">
+                        <Link
+                          to={item.to as any}
+                          className="flex items-center gap-2"
+                          onClick={() => {
+                            if (isMobile) setOpenMobile(false);
+                          }}
+                        >
                           {Icon ? <Icon className="h-4 w-4" /> : null}
                           <span>{item.title}</span>
                         </Link>

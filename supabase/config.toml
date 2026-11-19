@@ -114,3 +114,6 @@ verify_jwt = false
 
 [functions.send-satisfaction-surveys]
 verify_jwt = false
+
+[functions.admin-manage-staff]
+verify_jwt = true
