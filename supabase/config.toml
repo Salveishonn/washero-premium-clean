@@ -117,3 +117,6 @@ verify_jwt = false
 
 [functions.admin-manage-staff]
 verify_jwt = true
+
+[functions.studio-worker-api]
+verify_jwt = false
