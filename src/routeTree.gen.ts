@@ -40,6 +40,7 @@ import { Route as AdminMensajesRouteImport } from './routes/admin.mensajes'
 import { Route as AdminNotificacionesRouteImport } from './routes/admin.notificaciones'
 import { Route as AdminPreciosRouteImport } from './routes/admin.precios'
 import { Route as AdminReservasRouteImport } from './routes/admin.reservas'
+import { Route as AdminStudioRouteImport } from './routes/admin.studio'
 import { Route as AdminSuscripcionesRouteImport } from './routes/admin.suscripciones'
 import { Route as AdminWhatsappConfigRouteImport } from './routes/admin.whatsapp-config'
 import { Route as OperatorIndexRouteImport } from './routes/operator.index'
@@ -55,6 +56,7 @@ import { Route as PublicQSlugRouteImport } from './routes/_public.q.$slug'
 import { Route as AdminClientesCustomerIdRouteImport } from './routes/admin.clientes_.$customerId'
 import { Route as AdminFacturasInvoiceIdRouteImport } from './routes/admin.facturas_.$invoiceId'
 import { Route as AdminReservasBookingIdRouteImport } from './routes/admin.reservas_.$bookingId'
+import { Route as AdminStudioProjectIdRouteImport } from './routes/admin.studio_.$projectId'
 import { Route as OperatorReservaBookingIdRouteImport } from './routes/operator.reserva.$bookingId'
 
 const PublicRoute = PublicRouteImport.update({
@@ -211,6 +213,11 @@ const AdminReservasRoute = AdminReservasRouteImport.update({
   path: '/reservas',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminStudioRoute = AdminStudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSuscripcionesRoute = AdminSuscripcionesRouteImport.update({
   id: '/suscripciones',
   path: '/suscripciones',
@@ -287,6 +294,11 @@ const AdminReservasBookingIdRoute = AdminReservasBookingIdRouteImport.update({
   path: '/reservas/$bookingId',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminStudioProjectIdRoute = AdminStudioProjectIdRouteImport.update({
+  id: '/studio_/$projectId',
+  path: '/studio/$projectId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const OperatorReservaBookingIdRoute =
   OperatorReservaBookingIdRouteImport.update({
     id: '/reserva/$bookingId',
@@ -324,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
+  '/admin/studio': typeof AdminStudioRoute
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
@@ -340,6 +353,7 @@ export interface FileRoutesByFullPath {
   '/admin/clientes/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
+  '/admin/studio/$projectId': typeof AdminStudioProjectIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRoutesByTo {
@@ -369,6 +383,7 @@ export interface FileRoutesByTo {
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
+  '/admin/studio': typeof AdminStudioRoute
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
@@ -386,6 +401,7 @@ export interface FileRoutesByTo {
   '/admin/clientes/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas/$bookingId': typeof AdminReservasBookingIdRoute
+  '/admin/studio/$projectId': typeof AdminStudioProjectIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRoutesById {
@@ -419,6 +435,7 @@ export interface FileRoutesById {
   '/admin/notificaciones': typeof AdminNotificacionesRoute
   '/admin/precios': typeof AdminPreciosRoute
   '/admin/reservas': typeof AdminReservasRoute
+  '/admin/studio': typeof AdminStudioRoute
   '/admin/suscripciones': typeof AdminSuscripcionesRoute
   '/admin/whatsapp-config': typeof AdminWhatsappConfigRoute
   '/operator/hoy': typeof OperatorHoyRoute
@@ -436,6 +453,7 @@ export interface FileRoutesById {
   '/admin/clientes_/$customerId': typeof AdminClientesCustomerIdRoute
   '/admin/facturas_/$invoiceId': typeof AdminFacturasInvoiceIdRoute
   '/admin/reservas_/$bookingId': typeof AdminReservasBookingIdRoute
+  '/admin/studio_/$projectId': typeof AdminStudioProjectIdRoute
   '/operator/reserva/$bookingId': typeof OperatorReservaBookingIdRoute
 }
 export interface FileRouteTypes {
@@ -470,6 +488,7 @@ export interface FileRouteTypes {
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
+    | '/admin/studio'
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
@@ -486,6 +505,7 @@ export interface FileRouteTypes {
     | '/admin/clientes/$customerId'
     | '/admin/facturas/$invoiceId'
     | '/admin/reservas/$bookingId'
+    | '/admin/studio/$projectId'
     | '/operator/reserva/$bookingId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -515,6 +535,7 @@ export interface FileRouteTypes {
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
+    | '/admin/studio'
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
@@ -532,6 +553,7 @@ export interface FileRouteTypes {
     | '/admin/clientes/$customerId'
     | '/admin/facturas/$invoiceId'
     | '/admin/reservas/$bookingId'
+    | '/admin/studio/$projectId'
     | '/operator/reserva/$bookingId'
   id:
     | '__root__'
@@ -564,6 +586,7 @@ export interface FileRouteTypes {
     | '/admin/notificaciones'
     | '/admin/precios'
     | '/admin/reservas'
+    | '/admin/studio'
     | '/admin/suscripciones'
     | '/admin/whatsapp-config'
     | '/operator/hoy'
@@ -581,6 +604,7 @@ export interface FileRouteTypes {
     | '/admin/clientes_/$customerId'
     | '/admin/facturas_/$invoiceId'
     | '/admin/reservas_/$bookingId'
+    | '/admin/studio_/$projectId'
     | '/operator/reserva/$bookingId'
   fileRoutesById: FileRoutesById
 }
@@ -809,6 +833,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminReservasRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/studio': {
+      id: '/admin/studio'
+      path: '/studio'
+      fullPath: '/admin/studio'
+      preLoaderRoute: typeof AdminStudioRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/suscripciones': {
       id: '/admin/suscripciones'
       path: '/suscripciones'
@@ -914,6 +945,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminReservasBookingIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/studio_/$projectId': {
+      id: '/admin/studio_/$projectId'
+      path: '/studio/$projectId'
+      fullPath: '/admin/studio/$projectId'
+      preLoaderRoute: typeof AdminStudioProjectIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/operator/reserva/$bookingId': {
       id: '/operator/reserva/$bookingId'
       path: '/reserva/$bookingId'
@@ -969,12 +1007,14 @@ interface AdminRouteChildren {
   AdminNotificacionesRoute: typeof AdminNotificacionesRoute
   AdminPreciosRoute: typeof AdminPreciosRoute
   AdminReservasRoute: typeof AdminReservasRoute
+  AdminStudioRoute: typeof AdminStudioRoute
   AdminSuscripcionesRoute: typeof AdminSuscripcionesRoute
   AdminWhatsappConfigRoute: typeof AdminWhatsappConfigRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminClientesCustomerIdRoute: typeof AdminClientesCustomerIdRoute
   AdminFacturasInvoiceIdRoute: typeof AdminFacturasInvoiceIdRoute
   AdminReservasBookingIdRoute: typeof AdminReservasBookingIdRoute
+  AdminStudioProjectIdRoute: typeof AdminStudioProjectIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -1001,12 +1041,14 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminNotificacionesRoute: AdminNotificacionesRoute,
   AdminPreciosRoute: AdminPreciosRoute,
   AdminReservasRoute: AdminReservasRoute,
+  AdminStudioRoute: AdminStudioRoute,
   AdminSuscripcionesRoute: AdminSuscripcionesRoute,
   AdminWhatsappConfigRoute: AdminWhatsappConfigRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminClientesCustomerIdRoute: AdminClientesCustomerIdRoute,
   AdminFacturasInvoiceIdRoute: AdminFacturasInvoiceIdRoute,
   AdminReservasBookingIdRoute: AdminReservasBookingIdRoute,
+  AdminStudioProjectIdRoute: AdminStudioProjectIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
