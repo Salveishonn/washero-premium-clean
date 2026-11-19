@@ -17,6 +17,7 @@ import {
   deriveToolLeadSignal,
 } from "./customer-leads.ts";
 import { whatsappToolsSecretFromRequest, whatsappToolsSecretsConfigured } from "./whatsapp-cloud.ts";
+import { findBotV2Tool } from "./whatsapp-bot-v2-tools.ts";
 
 export const WHATSAPP_TOOLS_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -179,7 +180,7 @@ export async function handleWhatsAppToolsRequest(req: Request): Promise<Response
       return json(result, 200);
     }
 
-    const tool = findTool(toolName);
+    const tool = findTool(toolName) ?? findBotV2Tool(toolName);
     if (!tool) return json({ ok: false, error: "unknown_tool", tool: toolName }, 400);
 
     const ctx: AgentToolContext = {

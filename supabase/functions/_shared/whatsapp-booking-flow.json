@@ -1,0 +1,425 @@
+{
+  "version": "7.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "SERVICIO": ["SEGUNDO_VEHICULO", "UBICACION"],
+    "SEGUNDO_VEHICULO": ["UBICACION"],
+    "UBICACION": ["TURNO"],
+    "TURNO": ["RESUMEN"],
+    "RESUMEN": []
+  },
+  "screens": [
+    {
+      "id": "SERVICIO",
+      "title": "Tu lavado",
+      "data": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [
+            { "id": "svc-basico", "title": "Lavado Básico", "description": "Desde $25.000" },
+            { "id": "svc-completo", "title": "Lavado Completo", "description": "Desde $35.000" }
+          ]
+        },
+        "vehicle_types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+          },
+          "__example__": [
+            { "id": "Auto", "title": "Auto" },
+            { "id": "SUV", "title": "SUV" }
+          ]
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "interior", "title": "Aspirado profundo", "description": "+ $5.000" }]
+        },
+        "has_error": { "type": "boolean", "__example__": false },
+        "error_text": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_error}",
+            "then": [{ "type": "TextBody", "text": "${data.error_text}", "font-weight": "bold" }]
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "vehicle_count",
+            "label": "¿Cuántos vehículos lavamos?",
+            "required": true,
+            "init-value": "1",
+            "data-source": [
+              { "id": "1", "title": "1 vehículo" },
+              { "id": "2", "title": "2 vehículos", "description": "El más barato con 20% OFF 🎉" }
+            ]
+          },
+          {
+            "type": "Dropdown",
+            "name": "vehicle_1",
+            "label": "Tipo de vehículo",
+            "required": true,
+            "data-source": "${data.vehicle_types}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "service_1",
+            "label": "Servicio",
+            "required": true,
+            "data-source": "${data.services}"
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "extras_1",
+            "label": "Extras (opcional)",
+            "required": false,
+            "data-source": "${data.extras}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continuar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "SERVICIO",
+                "vehicle_count": "${form.vehicle_count}",
+                "vehicle_1": "${form.vehicle_1}",
+                "service_1": "${form.service_1}",
+                "extras_1": "${form.extras_1}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "SEGUNDO_VEHICULO",
+      "title": "2do vehículo",
+      "data": {
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "svc-basico", "title": "Lavado Básico", "description": "Desde $25.000" }]
+        },
+        "vehicle_types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+          },
+          "__example__": [{ "id": "Auto", "title": "Auto" }]
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "interior", "title": "Aspirado profundo", "description": "+ $5.000" }]
+        },
+        "has_error": { "type": "boolean", "__example__": false },
+        "error_text": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_error}",
+            "then": [{ "type": "TextBody", "text": "${data.error_text}", "font-weight": "bold" }]
+          },
+          {
+            "type": "TextBody",
+            "text": "🎉 El más barato de los dos lavados tiene 20% OFF."
+          },
+          {
+            "type": "Dropdown",
+            "name": "vehicle_2",
+            "label": "Tipo de vehículo",
+            "required": true,
+            "data-source": "${data.vehicle_types}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "service_2",
+            "label": "Servicio",
+            "required": true,
+            "data-source": "${data.services}"
+          },
+          {
+            "type": "CheckboxGroup",
+            "name": "extras_2",
+            "label": "Extras (opcional)",
+            "required": false,
+            "data-source": "${data.extras}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continuar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "SEGUNDO_VEHICULO",
+                "vehicle_2": "${form.vehicle_2}",
+                "service_2": "${form.service_2}",
+                "extras_2": "${form.extras_2}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "UBICACION",
+      "title": "¿Dónde lavamos?",
+      "data": {
+        "customer_name": { "type": "string", "__example__": "Pedro Gómez" },
+        "address": { "type": "string", "__example__": "" },
+        "private_lot": { "type": "string", "__example__": "" },
+        "private_neighborhoods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+          },
+          "__example__": [{ "id": "nb-1", "title": "Nordelta - Los Lagos" }]
+        },
+        "has_error": { "type": "boolean", "__example__": false },
+        "error_text": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_error}",
+            "then": [{ "type": "TextBody", "text": "${data.error_text}", "font-weight": "bold" }]
+          },
+          {
+            "type": "TextInput",
+            "name": "customer_name",
+            "label": "Nombre y apellido",
+            "input-type": "text",
+            "required": true,
+            "init-value": "${data.customer_name}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "address_type",
+            "label": "Tipo de dirección",
+            "required": true,
+            "init-value": "street",
+            "data-source": [
+              { "id": "street", "title": "Calle / avenida" },
+              { "id": "private", "title": "Barrio cerrado / country" }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "name": "address",
+            "label": "Dirección",
+            "input-type": "text",
+            "required": false,
+            "helper-text": "Calle, altura y localidad. Ej: Libertador 1234, Martínez",
+            "init-value": "${data.address}"
+          },
+          {
+            "type": "Dropdown",
+            "name": "private_neighborhood",
+            "label": "Barrio cerrado",
+            "required": false,
+            "data-source": "${data.private_neighborhoods}"
+          },
+          {
+            "type": "TextInput",
+            "name": "private_lot",
+            "label": "Lote / casa",
+            "input-type": "text",
+            "required": false,
+            "init-value": "${data.private_lot}"
+          },
+          {
+            "type": "TextCaption",
+            "text": "Calle: completá la dirección. Barrio cerrado: elegilo de la lista y poné el lote."
+          },
+          {
+            "type": "Footer",
+            "label": "Continuar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "UBICACION",
+                "customer_name": "${form.customer_name}",
+                "address_type": "${form.address_type}",
+                "address": "${form.address}",
+                "private_neighborhood": "${form.private_neighborhood}",
+                "private_lot": "${form.private_lot}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "TURNO",
+      "title": "Día y pago",
+      "data": {
+        "address_label": { "type": "string", "__example__": "📍 Av. del Libertador 1234, Martínez" },
+        "dates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "2026-11-20", "title": "Vie 20 nov", "description": "6 horarios libres" }]
+        },
+        "selected_date": { "type": "string", "__example__": "2026-11-20" },
+        "times": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          },
+          "__example__": [{ "id": "10:00", "title": "10:00 hs", "description": "Termina ~11:30 hs" }]
+        },
+        "discount_code": { "type": "string", "__example__": "" },
+        "has_error": { "type": "boolean", "__example__": false },
+        "error_text": { "type": "string", "__example__": "" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "If",
+            "condition": "${data.has_error}",
+            "then": [{ "type": "TextBody", "text": "${data.error_text}", "font-weight": "bold" }]
+          },
+          { "type": "TextCaption", "text": "${data.address_label}" },
+          {
+            "type": "Dropdown",
+            "name": "date",
+            "label": "Día",
+            "required": true,
+            "init-value": "${data.selected_date}",
+            "data-source": "${data.dates}",
+            "on-select-action": {
+              "name": "data_exchange",
+              "payload": { "step": "TURNO_DATE", "date": "${form.date}" }
+            }
+          },
+          {
+            "type": "Dropdown",
+            "name": "time",
+            "label": "Horario",
+            "required": true,
+            "data-source": "${data.times}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "payment_method",
+            "label": "Forma de pago",
+            "required": true,
+            "data-source": [
+              { "id": "MercadoPago", "title": "Mercado Pago", "description": "QR, link o alias" },
+              { "id": "Transferencia", "title": "Transferencia", "description": "Te pasamos los datos por el chat" },
+              { "id": "Pagar después", "title": "Pago el día del lavado", "description": "Efectivo o transferencia en el momento" }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "name": "discount_code",
+            "label": "Código de descuento",
+            "input-type": "text",
+            "required": false,
+            "helper-text": "Opcional. Si tenés uno, escribilo acá.",
+            "init-value": "${data.discount_code}"
+          },
+          {
+            "type": "Footer",
+            "label": "Ver resumen",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "TURNO",
+                "date": "${form.date}",
+                "time": "${form.time}",
+                "payment_method": "${form.payment_method}",
+                "discount_code": "${form.discount_code}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "RESUMEN",
+      "title": "Revisá tu reserva",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "summary_units": { "type": "string", "__example__": "Lavado Completo · Auto — $35.000" },
+        "summary_when": { "type": "string", "__example__": "📅 Vie 20 nov a las 10:00 hs" },
+        "summary_where": { "type": "string", "__example__": "📍 Av. del Libertador 1234, Martínez" },
+        "summary_payment": { "type": "string", "__example__": "💳 Mercado Pago (QR, link o alias)" },
+        "summary_total": { "type": "string", "__example__": "Total: $35.000" }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "${data.summary_units}" },
+          { "type": "TextBody", "text": "${data.summary_when}" },
+          { "type": "TextBody", "text": "${data.summary_where}" },
+          { "type": "TextBody", "text": "${data.summary_payment}" },
+          { "type": "TextHeading", "text": "${data.summary_total}" },
+          {
+            "type": "TextCaption",
+            "text": "Al confirmar te llega por el chat cómo pagar. Apenas se acredita, te mandamos la confirmación y la factura."
+          },
+          {
+            "type": "Footer",
+            "label": "Confirmar reserva",
+            "on-click-action": { "name": "complete", "payload": { "confirmed": "yes" } }
+          }
+        ]
+      }
+    }
+  ]
+}

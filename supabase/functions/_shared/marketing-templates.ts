@@ -54,7 +54,7 @@ export const MARKETING_TEMPLATES: readonly MarketingTemplateDef[] = [
     title: "Promo con código de descuento",
     purpose: "Descuento puntual con código, para cualquier audiencia.",
     suggestedAudience: "todos",
-    header: "Promo Washero 🚗💦",
+    header: "Promo Washero",
     body:
       "Hola {{1}}! Esta semana tenés {{2}} de descuento en tu lavado a domicilio. " +
       "Usá el código {{3}} al reservar, válido hasta el {{4}}. Vamos a donde estés en Zona Norte.",
@@ -188,6 +188,8 @@ export function validateTemplateDef(def: MarketingTemplateDef): string[] {
   if (/\}\}\s*\{\{/.test(def.body)) problems.push("adjacent_placeholders");
   if (def.body.length > 1024) problems.push("body_too_long");
   if (def.header && def.header.length > 60) problems.push("header_too_long");
+  // Meta rejects TEXT headers with new lines, emojis or formatting characters (* _ ~ `).
+  if (def.header && /[\n\r*_~`]|\p{Extended_Pictographic}/u.test(def.header)) problems.push("header_format");
   if (def.footer && def.footer.length > 60) problems.push("footer_too_long");
   for (const b of def.buttons) if (b.text.length > 25) problems.push(`button_too_long:${b.text}`);
   return problems;

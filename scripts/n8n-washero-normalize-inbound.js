@@ -2,6 +2,9 @@ const out = [];
 for (const item of $input.all()) {
   const j = item.json || {};
   const m = (j.messages && j.messages[0]) || {};
+  // Status webhooks (sent / delivered / read) carry no message: pass the status so the
+  // workflow can spot messages a person sent from the WhatsApp Business app.
+  const st = (!j.messages && j.statuses && j.statuses[0]) || null;
   const c = (j.contacts && j.contacts[0]) || {};
   const inter = m.interactive || {};
   const br = inter.button_reply || {};
@@ -11,6 +14,12 @@ for (const item of $input.all()) {
   const doc = m.document || {};
   // Template quick-reply taps (marketing "Sí, quiero promos" / "No recibir promos").
   const btn = m.button || {};
+  // WhatsApp Flow (booking form) submission arrives as interactive.nfm_reply.
+  const nfm = inter.nfm_reply || {};
+  let flowResponse = null;
+  if (nfm.response_json) {
+    try { flowResponse = JSON.parse(nfm.response_json); } catch (e) { flowResponse = null; }
+  }
   const body =
     (m.text && m.text.body) ||
     btn.text ||
@@ -18,12 +27,16 @@ for (const item of $input.all()) {
     doc.caption ||
     lr.title ||
     br.title ||
+    (flowResponse ? "[Formulario de reserva enviado]" : "") ||
     "";
   out.push({
     json: {
-      phone: String(m.from || ""),
+      phone: String(m.from || (st && st.recipient_id) || ""),
+      is_status: !!st,
+      status: String((st && st.status) || ""),
+      status_message_id: String((st && st.id) || ""),
       name: String((c.profile && c.profile.name) || ""),
-      conversation_id: String(m.from || ""),
+      conversation_id: String(m.from || (st && st.recipient_id) || ""),
       message_type: String(m.type || "unknown"),
       message_text: String(body),
       reply_id: String(lr.id || br.id || btn.payload || ""),
@@ -34,6 +47,9 @@ for (const item of $input.all()) {
       file_name: String(doc.filename || ""),
       lat: loc.latitude != null ? Number(loc.latitude) : null,
       lng: loc.longitude != null ? Number(loc.longitude) : null,
+      flow_response: flowResponse,
+      // Reactions (👍 on a bot message) carry the reacted message id; the router ignores them.
+      reaction_emoji: String((m.reaction && m.reaction.emoji) || ""),
     },
   });
 }

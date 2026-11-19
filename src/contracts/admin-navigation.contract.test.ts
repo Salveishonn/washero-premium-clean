@@ -14,6 +14,7 @@ const EXPECTED_VISIBLE = [
   "/admin/disponibilidad",
   "/admin/clientes",
   "/admin/mensajes",
+  "/admin/whatsapp-config",
   "/admin/marketing",
   "/admin/finanzas",
   "/admin/comprobantes",
@@ -26,7 +27,6 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
   "/admin/botmaker": "src/routes/admin.botmaker.tsx",
   "/admin/notificaciones": "src/routes/admin.notificaciones.tsx",
   "/admin/agente-whatsapp": "src/routes/admin.agente-whatsapp.tsx",
-  "/admin/whatsapp-config": "src/routes/admin.whatsapp-config.tsx",
   "/admin/app-config": "src/routes/admin.app-config.tsx",
   "/admin/early-access": "src/routes/admin.early-access.tsx",
   "/admin/leads-kipper": "src/routes/admin.leads-kipper.tsx",
@@ -36,9 +36,9 @@ const HIDDEN_ROUTE_FILES: Record<(typeof ADMIN_NAV_HIDDEN_HREFS)[number], string
 };
 
 describe("admin navigation contract", () => {
-  it("exposes exactly ten visible destinations in job order", () => {
+  it("exposes exactly eleven visible destinations in job order", () => {
     expect(ADMIN_NAV_VISIBLE_HREFS).toEqual([...EXPECTED_VISIBLE]);
-    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(10);
+    expect(ADMIN_NAV_VISIBLE_HREFS).toHaveLength(11);
     expect(ADMIN_NAV_SECTIONS.map((section) => section.label)).toEqual([
       "Operación",
       "Clientes",

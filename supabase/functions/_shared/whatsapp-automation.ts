@@ -83,27 +83,35 @@ export function buildBookingConfirmedPreview(b: BookingNotifyRow): string {
 }
 
 export function buildPaymentConfirmedMessage(
-  b: Pick<BookingNotifyRow, "customer_name" | "price">,
+  b: Pick<BookingNotifyRow, "customer_name" | "price"> & Partial<BookingNotifyRow>,
   invoiceNumber: string | null,
   total: number,
   customerInvoiceUrl?: string | null,
 ): string {
   const name = firstName(b.customer_name);
   const totalLine = total > 0
-    ? `\n*Total:* $${total.toLocaleString("es-AR")}`
+    ? `\n*Total pagado:* $${total.toLocaleString("es-AR")}`
     : "";
   const receipt = invoiceNumber
-    ? `\n*Comprobante interno:* ${invoiceNumber}`
+    ? `\n*Factura:* ${invoiceNumber}`
     : "";
   const linkLine = customerInvoiceUrl
-    ? `\nPodés ver tu comprobante acá: ${customerInvoiceUrl}`
+    ? `\n🧾 Tu factura: ${customerInvoiceUrl}`
+    : "";
+  // Payment confirmed = booking confirmed: repeat the details so this one message is the
+  // customer's confirmation + invoice.
+  const details = b.scheduled_date
+    ? `\n\n*Servicio:* ${b.service_name ?? "—"}
+*Fecha:* ${fmtDate(b.scheduled_date)}
+*Horario:* ${fmtTime(b.scheduled_time ?? "")} hs
+*Dirección:* ${b.formatted_address || b.address || "—"}`
     : "";
 
   return `Hola ${name} 👋
-Registramos el *pago* de tu lavado Washero.${receipt}${totalLine}
-${linkLine}
+¡Recibimos tu pago y tu reserva quedó *confirmada*! ✅${details}
+${receipt}${totalLine}${linkLine}
 
-Gracias por elegir Washero.`;
+Te avisamos cuando el equipo esté en camino. ¡Gracias por elegir Washero! 🚗💦`;
 }
 
 export function getCustomerInvoiceUrl(invoice: { public_token?: string | null }) {

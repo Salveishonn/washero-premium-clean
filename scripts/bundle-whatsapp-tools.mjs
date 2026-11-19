@@ -36,7 +36,7 @@ const built = spawnSync(
     "--external:jsr:*",
     `--outfile=${bundleJs}`,
   ],
-  { cwd: root, encoding: "utf8" },
+  { cwd: root, encoding: "utf8", shell: process.platform === "win32" },
 );
 if (built.status !== 0) {
   console.error(built.stdout);

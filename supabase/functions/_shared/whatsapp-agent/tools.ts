@@ -32,6 +32,10 @@ import {
 } from "../slot-capacity.ts";
 import { addDaysIso, isSlotTooSoonForPublic } from "../logistic-availability.ts";
 import { parseArgentinaMobile } from "../argentina-phone.ts";
+import { mercadoPagoAlias, paymentQrUrl } from "../payment-qr.ts";
+import { botSilence } from "../whatsapp-bot-settings.ts";
+import { loadBotSettings } from "../whatsapp-bot-settings-db.ts";
+import { isHumanTakeoverActive } from "../whatsapp-human-takeover.ts";
 
 export type AgentToolContext = {
   conversationId: string;
@@ -541,12 +545,14 @@ const validateServiceArea: ToolDefinition = {
 // ---------------------------------------------------------------------------
 // get_available_dates / get_available_slots
 // ---------------------------------------------------------------------------
-async function computeAvailableSlotsInRange(
+export async function computeAvailableSlotsInRange(
   admin: SupabaseClient,
   opts: {
     service_id: string;
     vehicle_type?: string;
     selected_extras?: string[];
+    /** Two vehicles in one visit: the slot must fit the sum of both durations. */
+    booking_units?: CoreBookingUnitInput[];
     date_from: string;
     date_to: string;
   },
@@ -556,13 +562,15 @@ async function computeAvailableSlotsInRange(
   // base duration — passing the loose fields alone would silently ignore them.
   const durationResolved = await resolveLogisticBookingDurationMinutes(admin, {
     service_id: opts.service_id,
-    booking_units: [
-      {
-        vehicle_type: opts.vehicle_type ?? "Auto",
-        service_id: opts.service_id,
-        selected_extras: opts.selected_extras ?? [],
-      },
-    ],
+    booking_units: opts.booking_units?.length
+      ? opts.booking_units
+      : [
+        {
+          vehicle_type: opts.vehicle_type ?? "Auto",
+          service_id: opts.service_id,
+          selected_extras: opts.selected_extras ?? [],
+        },
+      ],
   });
   if (!durationResolved.ok) return { ok: false as const, error: durationResolved.error };
   const durationMinutes = durationResolved.duration_minutes;
@@ -1205,7 +1213,15 @@ const getPaymentLink: ToolDefinition = {
       (existingPayload?.init_point as string | undefined) ??
       (existingPayload?.sandbox_init_point as string | undefined) ??
       null;
-    if (existingUrl) return { ok: true, checkout_url: existingUrl, reused: true };
+    if (existingUrl) {
+      return {
+        ok: true,
+        checkout_url: existingUrl,
+        reused: true,
+        qr_image_url: await paymentQrUrl(booking_id),
+        mp_alias: mercadoPagoAlias(),
+      };
+    }
 
     const MP_TOKEN = Deno.env.get("MERCADOPAGO_ACCESS_TOKEN");
     if (!MP_TOKEN) return { ok: false, error: "mercadopago_not_configured" };
@@ -1268,7 +1284,12 @@ const getPaymentLink: ToolDefinition = {
       (preference.sandbox_init_point as string | undefined) ??
       null;
     if (!checkoutUrl) return { ok: false, error: "payment_link_failed" };
-    return { ok: true, checkout_url: checkoutUrl };
+    return {
+      ok: true,
+      checkout_url: checkoutUrl,
+      qr_image_url: await paymentQrUrl(booking_id),
+      mp_alias: mercadoPagoAlias(),
+    };
   },
 };
 
@@ -1288,7 +1309,52 @@ const getConversationState: ToolDefinition = {
       .eq("customer_phone", ctx.customerPhone)
       .maybeSingle();
     if (error) return { ok: false, error: "server_error" };
-    return { ok: true, state: data?.state ?? "none", data: data?.data ?? {} };
+    // exists:false = this phone never talked to the bot: the router greets it.
+    // promo_notice_pending = no promo preference recorded yet (never saw the notice, never
+    // said yes/no): the router shows the discreet promo notice once and records it.
+    let promoNoticePending = !data;
+    try {
+      const { data: customer } = await admin
+        .from("customers")
+        .select("id")
+        .in("phone", customerPhoneVariants(ctx.customerPhone))
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!customer) {
+        promoNoticePending = true;
+      } else {
+        const { data: pref } = await admin
+          .from("customer_communication_preferences")
+          .select("id")
+          .eq("customer_id", customer.id)
+          .eq("channel", "whatsapp")
+          .eq("purpose", "retention")
+          .maybeSingle();
+        promoNoticePending = !pref;
+      }
+    } catch {
+      // Never block the bot reply on this lookup.
+    }
+    // Editable settings (/admin/whatsapp-config): global pause, business hours, texts.
+    // bot_silenced:true → the n8n gate "¿Humano atendiendo?" drops the turn without replying
+    // (a submitted booking form still goes through).
+    const now = new Date();
+    const settings = await loadBotSettings(admin);
+    const silence = botSilence(settings, now);
+    const human = isHumanTakeoverActive(data?.state, data?.data as Record<string, unknown> | null, now);
+    return {
+      ok: true,
+      exists: !!data,
+      promo_notice_pending: promoNoticePending,
+      state: data?.state ?? "none",
+      data: data?.data ?? {},
+      bot_silenced: silence.silenced || human,
+      silence_reason: silence.silenced ? silence.reason : human ? "human" : null,
+      after_hours: !silence.silenced && silence.after_hours,
+      after_hours_message: settings.business_hours.after_hours_message,
+      bot_texts: settings.texts,
+    };
   },
 };
 
