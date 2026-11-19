@@ -161,7 +161,9 @@ export async function matchTransferBookingForReceipt(
   const { data: rows, error } = await admin
     .from("bookings")
     .select("id, booking_status, scheduled_date, scheduled_time, customer_phone")
-    .eq("payment_method", "Transferencia")
+    // MercadoPago bookings too: the bot offers the Mercado Pago alias next to the QR, and a
+    // transfer to that alias is confirmed with a receipt exactly like a bank transfer.
+    .in("payment_method", ["Transferencia", "MercadoPago"])
     .eq("payment_status", "pending")
     .in("booking_status", ["pending", "needs_review", "confirmed"])
     .gte("scheduled_date", today)

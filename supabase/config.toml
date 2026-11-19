@@ -105,5 +105,15 @@ verify_jwt = false
 [functions.whatsapp-marketing]
 verify_jwt = true
 
+# WhatsApp bot v2: Meta calls these directly (encrypted / HMAC-signed), cron uses x-internal-secret.
+[functions.whatsapp-booking-flow]
+verify_jwt = false
+
+[functions.payment-qr]
+verify_jwt = false
+
+[functions.send-satisfaction-surveys]
+verify_jwt = false
+
 [functions.admin-manage-staff]
 verify_jwt = true

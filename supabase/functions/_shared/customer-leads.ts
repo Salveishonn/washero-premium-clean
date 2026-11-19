@@ -27,6 +27,7 @@ function fold(value: unknown): string {
 const REPLY_ID_SIGNALS: Record<string, LeadSignal> = {
   "menu:servicios": "precios",
   "menu:zonas": "cobertura",
+  "menu:info": "precios",
   "menu:reservar": "reserva_iniciada",
   "menu:humano": "pidio_humano",
   "nav:humano": "pidio_humano",
@@ -38,6 +39,9 @@ const MENU_TITLE_SIGNALS: Record<string, LeadSignal> = {
   precios: "precios",
   cobertura: "cobertura",
   reservar: "reserva_iniciada",
+  "reservar turno": "reserva_iniciada",
+  "precios y zonas": "precios",
+  "hablar con alguien": "pidio_humano",
   humano: "pidio_humano",
 };
 

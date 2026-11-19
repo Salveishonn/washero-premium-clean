@@ -1598,6 +1598,18 @@ export type Database = {
         };
         Relationships: [];
       };
+      whatsapp_bot_settings: {
+        Row: { id: boolean; settings: Json; updated_at: string; updated_by: string | null };
+        Insert: { id?: boolean; settings?: Json; updated_at?: string; updated_by?: string | null };
+        Update: { id?: boolean; settings?: Json; updated_at?: string; updated_by?: string | null };
+        Relationships: [];
+      };
+      whatsapp_conversation_state: {
+        Row: { customer_phone: string; state: string; data: Json; updated_at: string };
+        Insert: { customer_phone: string; state?: string; data?: Json; updated_at?: string };
+        Update: { customer_phone?: string; state?: string; data?: Json; updated_at?: string };
+        Relationships: [];
+      };
       invoices: {
         Row: {
           booking_id: string | null;

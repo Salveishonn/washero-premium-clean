@@ -16,6 +16,14 @@ Deno.test("every catalog template passes the Meta format checks", () => {
   }
 });
 
+Deno.test("headers with emojis, new lines or formatting are rejected like Meta does", () => {
+  const base = MARKETING_TEMPLATES[0];
+  for (const header of ["Promo Washero 🚗💦", "Promo\nWashero", "*Promo* Washero", "Promo_Washero"]) {
+    assertEquals(validateTemplateDef({ ...base, header }).includes("header_format"), true, header);
+  }
+  assertEquals(validateTemplateDef({ ...base, header: "Promo Washero" }), []);
+});
+
 Deno.test("keys and Meta names are unique", () => {
   assertEquals(new Set(MARKETING_TEMPLATES.map((t) => t.key)).size, MARKETING_TEMPLATES.length);
   assertEquals(new Set(MARKETING_TEMPLATES.map((t) => t.name)).size, MARKETING_TEMPLATES.length);

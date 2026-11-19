@@ -20,6 +20,50 @@ const low = text.toLowerCase();
 const mediaId = String(norm.media_id || '');
 const lat = (typeof norm.lat === 'number' && Number.isFinite(norm.lat)) ? norm.lat : null;
 const lng = (typeof norm.lng === 'number' && Number.isFinite(norm.lng)) ? norm.lng : null;
+// WhatsApp Flow (booking form) submission: Normalize Inbound passes nfm_reply.response_json.
+let flowResponse = null;
+try {
+  const fr = norm.flow_response;
+  flowResponse = (fr && typeof fr === 'object') ? fr : (fr ? JSON.parse(String(fr)) : null);
+} catch (e) { flowResponse = null; }
+// Read the conversation flags from the Get Conversation State node itself: after a tool call,
+// Collect Tool Result only forwards state/data/results, so $input loses them on later passes.
+let convState = inp;
+try {
+  const g = $('Get Conversation State').first().json;
+  if (g && typeof g === 'object') convState = g;
+} catch (e) { convState = inp; }
+// get_conversation_state answers exists:false for a phone that never wrote before.
+const firstContact = convState.exists === false && state0 === 'none';
+// promo_notice_pending: this contact has no promo preference yet (new or returning). The
+// discreet notice is shown once in the next menu / form / prices message and recorded.
+const noticePending = firstContact || convState.promo_notice_pending === true;
+
+// Editable texts (/admin/whatsapp-config → whatsapp_bot_settings). get_conversation_state sends
+// them as bot_texts; anything missing or empty keeps the built-in text below.
+const T = {
+  welcome: '¡Hola {nombre}! 👋 Soy el asistente de Washero.',
+  menu_body: 'Lavado de autos a domicilio en Zona Norte 🚗💦\n\n¿Qué querés hacer?',
+  promo_notice: '📣 Agendamos tu número para avisarte de promos y descuentos. Si preferís no recibirlas, escribí *no promos* y listo.',
+  thanks: '¡Gracias a vos, {nombre}! 🙌 Cualquier cosa escribinos por acá cuando quieras. ¡Que tengas un lindo día! 🚗💦',
+  miss: 'Perdón, no te entendí 🤔 Tocá una de las opciones:',
+  handoff: 'Ya avisé a alguien del equipo 🙌 Te escriben por acá en breve.',
+  form_body: 'Completá el formulario y tu turno queda reservado en menos de 1 minuto ⏱️\n\nAhí elegís servicio, vehículo (el 2do auto tiene 20% OFF), dirección, día y horario, forma de pago y tu código de descuento si tenés uno.',
+  info_footer: '🚗🚙 *2 autos en la misma visita: 20% OFF en el más barato.*\nEl precio final depende del vehículo y los extras.',
+  survey_good: '¡Qué bueno! Nos alegra un montón 🙌',
+  survey_bad: 'Gracias por avisarnos, lamentamos que no haya salido perfecto 😔\n\nContanos por acá qué pasó o qué podemos mejorar. Lo lee el equipo directamente.',
+  feedback_thanks: 'Gracias por contarnos 🙏 Ya se lo pasé al equipo para mejorar. Si hace falta, te escriben por acá.'
+};
+if (convState.bot_texts && typeof convState.bot_texts === 'object') {
+  Object.keys(T).forEach(function (k) {
+    const v = convState.bot_texts[k];
+    if (typeof v === 'string' && v.trim()) T[k] = v.trim();
+  });
+}
+// "{nombre}" → first name; without a name it disappears with its leading space / comma.
+function withName(s, nm) {
+  return String(s).replace(/[ ,]*\{nombre\}/g, function (m) { return nm ? m.replace('{nombre}', nm) : ''; });
+}
 
 const MAX_TOOL_CALLS = 10;
 const FALLBACK_VEHICLES = ['Auto', 'SUV', 'Pick-up', 'Otro'];
@@ -58,10 +102,30 @@ function msgList(body, buttonLabel, rows, header, sectionTitle) {
   return { payload: { messaging_product: 'whatsapp', to: to, type: 'interactive', interactive: inter }, log_text: log };
 }
 
+function msgImage(link, caption) {
+  return { payload: { messaging_product: 'whatsapp', to: to, type: 'image', image: { link: link, caption: cut(caption, 1024) } }, log_text: '[QR de pago]\n' + caption };
+}
+function msgFlow(body, cta, flow, header, footer) {
+  const params = {
+    flow_message_version: '3',
+    flow_token: flow.flow_token,
+    flow_id: flow.flow_id,
+    flow_cta: cut(cta, 20),
+    flow_action: 'data_exchange'
+  };
+  if (flow.mode === 'draft') params.mode = 'draft';
+  const inter = { type: 'flow', body: { text: cut(body, 1024) }, action: { name: 'flow', parameters: params } };
+  if (header) inter.header = { type: 'text', text: cut(header, 60) };
+  if (footer) inter.footer = { text: cut(footer, 60) };
+  return { payload: { messaging_product: 'whatsapp', to: to, type: 'interactive', interactive: inter }, log_text: body + '\n[' + cta + ']' };
+}
+
 function callTool(tool, args) {
   return [{ json: { action: 'call', tool: tool, args: args || {}, state: state0, data: data0, results: results } }];
 }
 function reply(nextState, nextData, msg) {
+  nextData = nextData || {};
+  if (data0.after_hours_at && !nextData.after_hours_at) nextData.after_hours_at = data0.after_hours_at;
   return [{ json: {
     action: 'reply',
     next_state: nextState,
@@ -88,23 +152,26 @@ function slotArgs(data) {
 }
 
 const MENU_ROWS = [
-  { id: 'menu:reservar', title: 'Reservar', description: 'Agenda tu lavado a domicilio' },
+  { id: 'menu:reservar', title: 'Reservar turno', description: 'Formulario rápido, menos de 1 minuto' },
   { id: 'menu:reservas', title: 'Mis reservas', description: 'Ver, reprogramar o cancelar' },
-  { id: 'menu:zonas', title: 'Cobertura', description: 'Hasta donde llegamos' },
-  { id: 'menu:servicios', title: 'Precios', description: 'Servicios y precios vigentes' },
-  { id: 'menu:humano', title: 'Humano', description: 'Te responde una persona' }
+  { id: 'menu:info', title: 'Precios y zonas', description: 'Servicios, precios y cobertura' },
+  { id: 'menu:humano', title: 'Hablar con alguien', description: 'Te responde una persona del equipo' }
 ];
-function menuMsg(prefix, header) {
-  const body = (prefix || '') + 'Lavado de autos a domicilio en Zona Norte 🚗💦\n\n¿Qué querés hacer?';
-  return msgList(body, 'Ver opciones', MENU_ROWS, header || 'Washero', 'Menu principal');
+const NO_PROMOS_ROW = { id: 'menu:nopromos', title: 'No recibir promos', description: 'No te mandamos ofertas' };
+const WELCOME_NOTICE = T.promo_notice;
+function firstNameOf(full) { return String(full || '').trim().split(/\s+/)[0] || ''; }
+function menuMsg(prefix, header, withNoPromos, suffix) {
+  const body = (prefix || '') + T.menu_body + (suffix || '');
+  const rows = withNoPromos ? MENU_ROWS.concat([NO_PROMOS_ROW]) : MENU_ROWS;
+  return msgList(body, 'Ver opciones', rows, header || 'Washero', 'Menu principal');
 }
 
 const STEP_OF_STATE = {
   menu: 'MENU', addrtype: 'ADDRTYPE', street: 'STREET', streetpick: 'STREET',
   streetconfirm: 'STREETCONFIRM', privlist: 'PRIVLIST', privlot: 'PRIVLOT',
   outside: 'OUTSIDE', svc: 'SVC', veh: 'VEH', extras: 'EXTRAS', name: 'NAME',
-  date: 'DATE', time: 'TIME', pay: 'PAY', confirm: 'CONFIRM',
-  await_receipt: 'WAITPAY', mybk: 'MYBK', bkact: 'BKACT', rdate: 'RDATE',
+  date: 'DATE', time: 'TIME', pay: 'PAY', confirm: 'CONFIRM', form: 'FORM',
+  await_receipt: 'WAITPAY', feedback: 'FEEDBACK_ASK', mybk: 'MYBK', bkact: 'BKACT', rdate: 'RDATE',
   rtime: 'RTIME', cxlconf: 'CXLCONF'
 };
 // Quick replies of WhatsApp marketing templates. whatsapp-tools ingest_message already
@@ -112,7 +179,35 @@ const STEP_OF_STATE = {
 const promoReply = low.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const isPromoOptIn = mtype === 'button' && promoReply === 'si, quiero promos';
 const isPromoOptOut = mtype === 'button' && promoReply === 'no recibir promos';
-const isMenuCmd = rid === 'nav:menu' || /^(menu|menú|hola|buenas|inicio|volver|empezar|start)$/i.test(low);
+const isMenuCmd = rid === 'nav:menu' || /^(menu|menú|hola|holaa+|buenas|buen dia|buenos dias|buenas tardes|buenas noches|inicio|volver|empezar|start)[!. ]*$/i.test(low);
+const folded = promoReply;
+const isNoPromosCmd = rid === 'menu:nopromos' || /^(no (quiero )?(recibir )?(promos|promociones|ofertas)|baja|stop)[!. ]*$/.test(folded);
+const BOOK_TEXT_RE = /\b(reservar|reserva(r)? (un )?turno|quiero (un )?turno|sacar (un )?turno|agendar|quiero (un )?lavado|quiero lavar)/;
+const INFO_TEXT_RE = /\b(precio|precios|cuanto (sale|cuesta|esta|cobran)|tarifa|zona|zonas|cobertura|llegan)/;
+// "gracias", "ok genial", "dale, muchas gracias!", "👍"... A short message made only of
+// courtesy words closes the chat politely instead of the "no te entendí" fallback.
+const COURTESY_WORDS = ['gracias', 'grasias', 'gracia', 'grax', 'tks', 'thanks', 'mil', 'muchas', 'muchisimas', 'genial',
+  'perfecto', 'perfect', 'buenisimo', 'barbaro', 'joya', 'excelente', 'dale', 'ok', 'okey', 'oka', 'okis', 'listo',
+  'chau', 'saludos', 'abrazo', 'igualmente', 'bueno', 'buen', 'dia', 'tarde', 'noche', 'que', 'tengas', 'tengan',
+  'lindo', 'un', 'vos', 'a', 'de', 'nada', 'super', 're', 'todo', 'bien', 'entendido', 'vale', 'no', 'si', 'besos',
+  'q', 'muy', 'amable', 'amables', 'por', 'la', 'info', 'informacion', 'ayuda', 'atencion', 'hasta', 'luego', 'pronto'];
+const CLOSING_RE = /^(gra+c+i+a+s*|grasias|grax|tks|thanks|genial|perfecto|perfect|buenisimo|barbaro|joya|excelente|o+k+|okey|oka|okis|listo|chau|saludos|da+le+|entendido|vale|igualmente|super|amables?)$/;
+function isCourtesy() {
+  if (mtype !== 'text' || !text) return false;
+  const cleaned = folded.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return /^[\s\p{Extended_Pictographic}\u200d\ufe0f\u{1F3FB}-\u{1F3FF}!.]+$/u.test(text);
+  const words = cleaned.split(' ');
+  if (words.length > 10) return false;
+  for (let k = 0; k < words.length; k++) {
+    const w = words[k];
+    if (COURTESY_WORDS.indexOf(w) < 0 && !CLOSING_RE.test(w) && !/^(ja|je)+$/.test(w)) return false;
+  }
+  return words.some(function (w) { return CLOSING_RE.test(w); });
+}
+const isThanks = isCourtesy();
+// States where the customer is mid-booking: a courtesy reply keeps the draft alive.
+const MID_FLOW_STATES = ['addrtype', 'street', 'streetpick', 'streetconfirm', 'privlist', 'privlot', 'outside',
+  'svc', 'veh', 'extras', 'name', 'date', 'time', 'pay', 'confirm', 'form', 'mybk', 'bkact', 'rdate', 'rtime', 'cxlconf'];
 const isHumanCmd = rid === 'nav:humano';
 const isReceiptMedia = mtype === 'image' || mtype === 'document';
 const receipt = (inp.receipt_capture && typeof inp.receipt_capture === 'object')
@@ -126,12 +221,32 @@ let step = 'MENU';
 let prefix = '';
 let data = JSON.parse(JSON.stringify(data0));
 
+// Reactions (👍 on a bot message) are not messages to answer: stay silent, keep state.
+if (mtype === 'reaction') return reply(state0, data0, null);
+
+if (convState.after_hours === true && !flowResponse && !/^survey:/.test(rid)) {
+  const lastNotice = Date.parse(String(data0.after_hours_at || ''));
+  if (!(Number.isFinite(lastNotice) && Date.now() - lastNotice < 12 * 3600 * 1000)) {
+    const ahData = JSON.parse(JSON.stringify(data0));
+    ahData.after_hours_at = new Date().toISOString();
+    const ahMsg = String(convState.after_hours_message || '').trim() || 'Ahora estamos fuera de horario. Te respondemos apenas volvamos 🙌';
+    return reply(state0, ahData, msgText(ahMsg));
+  }
+}
+
+const surveyMatch = /^survey:(good|bad):(.+)$/.exec(rid);
+
 if (isPromoOptIn) {
   step = 'MENU';
   data = { misses: 0 };
   prefix = '¡Listo! Te vamos a avisar por acá cuando haya promos 🙌\n\n';
 } else if (isPromoOptOut) {
   return reply('none', { misses: 0 }, msgText('Listo, no te vamos a mandar más promociones. Si necesitás algo, escribí *menu* 👋'));
+} else if (surveyMatch) {
+  step = surveyMatch[1] === 'good' ? 'SURVEY_GOOD' : 'SURVEY_BAD';
+  data = { misses: 0, survey_booking_id: surveyMatch[2] };
+} else if (flowResponse && results.length < MAX_TOOL_CALLS) {
+  step = 'FORM_DONE';
 } else if (results.length >= MAX_TOOL_CALLS) {
   step = 'HANDOFF';
   data.handoff_reason = 'flujo n8n: demasiados pasos internos en un turno';
@@ -143,6 +258,18 @@ if (isPromoOptIn) {
 } else if (isMenuCmd) {
   step = 'MENU';
   data = { misses: 0 };
+} else if (isNoPromosCmd) {
+  step = 'NOPROMOS';
+  data = { misses: 0 };
+} else if (isThanks && state0 !== 'feedback') {
+  if (state0 === 'closed') return reply('closed', data0, null);
+  if (state0 === 'await_receipt') {
+    return reply('await_receipt', data0, msgText('¡De nada! 🙌 Cuando tengas el comprobante, mandalo por acá y lo revisamos.'));
+  }
+  if (MID_FLOW_STATES.indexOf(state0) >= 0) {
+    return reply(state0, data0, msgText('¡De nada! 🙌 Seguimos cuando quieras: tocá una opción del último mensaje o escribí *menu* para empezar de nuevo.'));
+  }
+  step = 'THANKS';
 } else if (receiptAck) {
   step = 'RECEIPT_ACK';
 } else if (data0.awaiting_receipt && isReceiptMedia && !receiptContinue) {
@@ -177,11 +304,23 @@ if (isPromoOptIn) {
   switch (state0) {
     case 'menu': {
       const v = ridVal('menu');
-      if (v === 'reservar') { step = 'ADDRTYPE'; data = { misses: 0 }; }
-      else if (v === 'servicios') { step = 'PRICES'; data.misses = 0; }
-      else if (v === 'zonas') { step = 'ZONES'; data.misses = 0; }
+      if (v === 'reservar') { step = 'FORM'; data = { misses: 0 }; }
+      else if (v === 'info' || v === 'servicios' || v === 'zonas') { step = 'INFO'; data.misses = 0; }
       else if (v === 'reservas') { step = 'MYBK'; data.misses = 0; }
       else if (v === 'humano') { step = 'HANDOFF'; data.handoff_reason = 'el cliente pidio hablar con una persona'; }
+      else if (!rid && BOOK_TEXT_RE.test(folded)) { step = 'FORM'; data = { misses: 0 }; }
+      else if (!rid && INFO_TEXT_RE.test(folded)) { step = 'INFO'; data.misses = 0; }
+      else step = 'MISS';
+      break;
+    }
+    case 'form': {
+      // The booking form is open on the customer's phone; typed text means they're lost.
+      if (rid === 'form:legacy') { step = 'ADDRTYPE'; data = { misses: 0 }; }
+      else { step = 'MISS'; prefix = 'Para reservar tocá *Reservar turno* y completá el formulario 👇\n\n'; }
+      break;
+    }
+    case 'feedback': {
+      if (text.length >= 2 && !rid) { data.feedback_text = text; data.misses = 0; step = 'FEEDBACK_SAVE'; }
       else step = 'MISS';
       break;
     }
@@ -329,7 +468,13 @@ if (isPromoOptIn) {
       else step = 'MISS';
       break;
     }
-    default: { step = 'MENU'; data = { misses: 0 }; }
+    default: {
+      // none / closed / unknown: jump straight to what the customer typed when it's obvious.
+      data = { misses: 0 };
+      if (!rid && BOOK_TEXT_RE.test(folded)) step = 'FORM';
+      else if (!rid && INFO_TEXT_RE.test(folded)) step = 'INFO';
+      else step = 'MENU';
+    }
   }
 }
 
@@ -341,7 +486,7 @@ if (step === 'MISS') {
     data.handoff_reason = 'el cliente escribio 3 veces algo que el flujo por botones no reconoce';
   } else {
     step = STEP_OF_STATE[state0] || 'MENU';
-    prefix = prefix || 'Perdón, no te entendí 🤔 Tocá una de las opciones:\n\n';
+    prefix = prefix || T.miss + '\n\n';
   }
 }
 
@@ -362,10 +507,178 @@ function lockFromValidate(v) {
   if (v.private_neighborhood_name) data.private_neighborhood_name = v.private_neighborhood_name;
 }
 
+function noticeSuffix() { return noticePending ? '\n\n_' + WELCOME_NOTICE + '_' : ''; }
+
+function bookedSummary(bk, lines) {
+  let s = '';
+  const units = (lines && lines.length) ? lines
+    : [(bk.service_name || data.service_name || '-') + ' — ' + (bk.vehicle_type || data.vehicle_type || '')];
+  units.forEach(function (l) { s += '• ' + l + '\n'; });
+  s += '• ' + fmtDate(bk.scheduled_date || data.scheduled_date) + ' a las ' + fmtTime(bk.scheduled_time || data.scheduled_time) + ' hs\n';
+  s += '• ' + (bk.address || data.formatted_address || data.address || '') + '\n';
+  s += '• Total: *' + money(bk.price != null ? bk.price : data.price) + '*\n';
+  return s;
+}
+
+// Post-booking message, shared by the form and the legacy step-by-step flow.
+function renderPayment(bk, method, lines) {
+  const nm = firstNameOf(bk.customer_name || data.customer_name || norm.name);
+  const hi = '¡Listo' + (nm ? ', ' + nm : '') + '! ';
+  const summary = bookedSummary(bk, lines);
+  if (method === 'MercadoPago') {
+    const pl = byTool('get_payment_link');
+    if (!pl) return callTool('get_payment_link', { booking_id: bk.id });
+    const opts = [];
+    if (pl.ok && pl.qr_image_url) opts.push('Escaneá este QR desde la app de Mercado Pago.');
+    if (pl.ok && pl.checkout_url) opts.push('O pagá desde este link: ' + pl.checkout_url);
+    if (pl.mp_alias) opts.push('O transferí al alias *' + pl.mp_alias + '* y mandanos el comprobante por acá.');
+    let pay = '💳 *Para confirmar el turno, pagá con Mercado Pago:*\n';
+    if (!opts.length) pay = 'En un rato te mandamos los datos para pagar.\n';
+    else opts.forEach(function (o) { pay += '• ' + o + '\n'; });
+    const body = hi + 'Tu turno quedó reservado 🙌\n\n' + summary + '\n' + pay +
+      '\nApenas se acredite el pago te mandamos la confirmación y la factura 🧾';
+    const st = pl.mp_alias ? 'await_receipt' : 'none';
+    const next = { misses: 0, booking_id: bk.id, awaiting_receipt: !!pl.mp_alias };
+    if (pl.ok && pl.qr_image_url && body.length <= 1024) return reply(st, next, msgImage(pl.qr_image_url, body));
+    return reply(st, next, msgText(body));
+  }
+  if (method === 'Transferencia') {
+    const bank = byTool('get_bank_transfer_details');
+    if (!bank) return callTool('get_bank_transfer_details', { booking_id: bk.id });
+    const how = (bank.ok && bank.customer_message) ? bank.customer_message
+      : 'Te pasamos los datos para transferir. Respondé con la foto o PDF del comprobante.';
+    const body = hi + 'Tu turno quedó reservado 🙌\n\n' + summary + '\n' + how +
+      '\n\nApenas validemos el pago te mandamos la confirmación y la factura 🧾';
+    return reply('await_receipt', { misses: 0, booking_id: bk.id, awaiting_receipt: true }, msgText(body));
+  }
+  const body = hi + 'Tu turno quedó confirmado ✅\n\n' + summary + '\nPagás el día del lavado. Te avisamos cuando el equipo esté en camino 🚗💦';
+  return reply('none', { misses: 0 }, msgText(body));
+}
+
 function render(st) {
   switch (st) {
-    case 'MENU':
+    case 'MENU': {
+      if (noticePending) {
+        const n = byTool('record_marketing_notice');
+        if (!n) return callTool('record_marketing_notice', {});
+        const nm = firstNameOf(norm.name);
+        const greet = firstContact ? withName(T.welcome, nm) + '\n\n' : '';
+        return reply('menu', { misses: 0 }, menuMsg(greet + prefix, null, true, noticeSuffix()));
+      }
       return reply('menu', { misses: Number(data.misses) || 0 }, menuMsg(prefix));
+    }
+
+    case 'THANKS': {
+      const nm = firstNameOf(norm.name);
+      return reply('closed', { misses: 0 }, msgText(withName(T.thanks, nm)));
+    }
+
+    case 'NOPROMOS': {
+      const r = byTool('set_marketing_consent');
+      if (!r) return callTool('set_marketing_consent', { consent: 'opt_out' });
+      return reply('menu', { misses: 0 }, menuMsg('Listo, no te vamos a mandar promociones 👍\n\n'));
+    }
+
+    case 'INFO': {
+      if (noticePending) {
+        const n = byTool('record_marketing_notice');
+        if (!n) return callTool('record_marketing_notice', {});
+      }
+      const r = byTool('get_services');
+      if (!r) return callTool('get_services', {});
+      const z = byTool('list_coverage_zones');
+      if (!z) return callTool('list_coverage_zones', {});
+      if (!r.ok) return fail('No pude traer los precios ahora 😓');
+      let body = 'Nuestros servicios 🧼\n\n';
+      (r.services || []).forEach(function (s) {
+        body += '• *' + s.name + '* — desde ' + money(s.base_price) + '\n';
+        if (s.description) body += '  ' + s.description + '\n';
+      });
+      body += '\n' + T.info_footer;
+      if (z.ok) {
+        body += '\n\n📍 Llegamos a: ' + (z.zones || []).join(', ');
+        if ((z.private_neighborhoods || []).length) body += '\n🏡 Barrios cerrados: ' + z.private_neighborhoods.join(', ');
+      }
+      body += '\n\n¿Qué querés hacer?' + noticeSuffix();
+      return reply('menu', { misses: 0 }, msgList(body, 'Ver opciones', MENU_ROWS, 'Precios y zonas', 'Menu principal'));
+    }
+
+    case 'FORM': {
+      if (noticePending) {
+        const n = byTool('record_marketing_notice');
+        if (!n) return callTool('record_marketing_notice', {});
+      }
+      const f = byTool('start_booking_form');
+      if (!f) return callTool('start_booking_form', {});
+      if (!f.ok || !f.flow_id || !f.flow_token) {
+        // Form not configured / unavailable: fall back to the step-by-step booking.
+        data = { misses: 0 };
+        return render('ADDRTYPE');
+      }
+      const body = prefix + T.form_body + noticeSuffix();
+      return reply('form', { misses: Number(data.misses) || 0, flow_token: f.flow_token },
+        msgFlow(body, 'Reservar turno', f, 'Reservá tu lavado 🚗💦', 'Washero · Lavado a domicilio'));
+    }
+
+    case 'FORM_DONE': {
+      const cb = byTool('create_booking_from_form');
+      if (!cb) return callTool('create_booking_from_form', {
+        flow_token: String(flowResponse.flow_token || ''),
+        confirmation_message_id: norm.external_message_id || ''
+      });
+      if (!cb.ok) {
+        data = { misses: 0 };
+        if (['slot_unavailable', 'no_capacity', 'slot_full', 'slot_not_found', 'service_does_not_fit_slot', 'past_date'].indexOf(cb.reason) >= 0) {
+          prefix = 'Uy, justo se ocupó ese horario 😓 Abrí el formulario de nuevo y elegí otro:\n\n';
+          return render('FORM');
+        }
+        if (cb.reason === 'form_expired' || cb.reason === 'form_not_found' || cb.reason === 'form_incomplete') {
+          prefix = 'Ese formulario ya venció. Abrilo de nuevo y en un minuto lo tenés 👇\n\n';
+          return render('FORM');
+        }
+        if (cb.reason === 'invalid_discount_code') {
+          prefix = (cb.message || 'El código de descuento ya no es válido.') + ' Abrí el formulario de nuevo:\n\n';
+          return render('FORM');
+        }
+        if (cb.reason === 'outside_coverage' || cb.reason === 'not_in_coverage') {
+          prefix = 'Esa dirección quedó fuera de nuestra zona 📍 Probá con otra:\n\n';
+          return render('FORM');
+        }
+        data.handoff_reason = 'create_booking_from_form fallo: ' + (cb.reason || cb.message || 'desconocido');
+        return render('HANDOFF');
+      }
+      const bk = cb.booking || {};
+      return renderPayment(bk, bk.payment_method || cb.payment_method, cb.summary_lines || null);
+    }
+
+    case 'SURVEY_GOOD': {
+      const r = byTool('record_survey_response');
+      if (!r) return callTool('record_survey_response', { booking_id: data.survey_booking_id, rating: 'positive' });
+      const link = r && r.review_url ? String(r.review_url) : '';
+      const body = T.survey_good + '\n\n' +
+        (link ? '¿Nos dejás una reseña en Google? Son 30 segundos y nos ayuda muchísimo 🙏\n' + link : '¡Gracias por elegirnos!') +
+        '\n\n¡Hasta el próximo lavado! 🚗💦';
+      return reply('closed', { misses: 0 }, msgText(body));
+    }
+
+    case 'SURVEY_BAD': {
+      const r = byTool('record_survey_response');
+      if (!r) return callTool('record_survey_response', { booking_id: data.survey_booking_id, rating: 'negative' });
+      return reply('feedback', { misses: 0, feedback_booking_id: data.survey_booking_id }, msgText(T.survey_bad));
+    }
+
+    case 'FEEDBACK_ASK':
+      return reply('feedback', data, msgText('Contanos en un mensaje qué pasó así lo mejoramos 🙏'));
+
+    case 'FEEDBACK_SAVE': {
+      const r = byTool('record_survey_response');
+      if (!r) return callTool('record_survey_response', {
+        booking_id: data.feedback_booking_id || '', rating: 'negative', comment: data.feedback_text || ''
+      });
+      const h = byTool('request_human_handoff');
+      if (!h) return callTool('request_human_handoff', { reason: 'comentario de mejora tras la encuesta de satisfaccion' });
+      return reply('handoff', { misses: 0 }, msgText(T.feedback_thanks));
+    }
 
     case 'PRICES': {
       const r = byTool('get_services');
@@ -616,28 +929,7 @@ function render(st) {
       }
       const bk = cb.booking || {};
       data.booking_id = bk.id;
-      let body = '¡Listo! Tu reserva quedó confirmada ✅\n\n' +
-        '• ' + (bk.service_name || data.service_name || '-') + ' — ' + (bk.vehicle_type || data.vehicle_type || '') + '\n' +
-        '• ' + fmtDate(bk.scheduled_date || data.scheduled_date) + ' a las ' + fmtTime(bk.scheduled_time || data.scheduled_time) + ' hs\n' +
-        '• ' + (bk.address || data.formatted_address || data.address || '') + '\n' +
-        '• Total: ' + money(bk.price != null ? bk.price : data.price) + '\n';
-      if (data.payment_method === 'MercadoPago') {
-        const pl = byTool('get_payment_link');
-        if (!pl) return callTool('get_payment_link', { booking_id: bk.id });
-        if (pl.ok && pl.checkout_url) body += '\nPagá acá 👇\n' + pl.checkout_url + '\n\nCuando Mercado Pago confirme, te llega la factura.';
-        else body += '\nEn un rato te mandamos el link de pago.';
-        body += '\n\nEscribí *menu* cuando quieras volver al inicio.';
-        return reply('none', { misses: 0 }, msgText(body));
-      }
-      if (data.payment_method === 'Transferencia') {
-        const bank = byTool('get_bank_transfer_details');
-        if (!bank) return callTool('get_bank_transfer_details', { booking_id: bk.id });
-        if (bank.ok && bank.customer_message) body += '\n' + bank.customer_message;
-        else body += '\nTe pasamos los datos para transferir. Respondé con la foto o PDF del comprobante.';
-        return reply('await_receipt', { misses: 0, booking_id: bk.id, awaiting_receipt: true }, msgText(body));
-      }
-      body += '\nPodés pagar el día del lavado.\n\nEscribí *menu* cuando quieras volver al inicio.';
-      return reply('none', { misses: 0 }, msgText(body));
+      return renderPayment(bk, data.payment_method, null);
     }
 
     case 'WAITPAY':
@@ -760,7 +1052,7 @@ function render(st) {
     case 'HANDOFF': {
       const r = byTool('request_human_handoff');
       if (!r) return callTool('request_human_handoff', { reason: data.handoff_reason || 'derivacion desde el flujo de WhatsApp' });
-      return reply('handoff', { misses: 0 }, msgText('Ya avisé a alguien del equipo 🙌 Te escriben por acá en breve.'));
+      return reply('handoff', { misses: 0 }, msgText(T.handoff));
     }
 
     default:

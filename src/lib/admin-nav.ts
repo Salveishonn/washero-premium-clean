@@ -27,6 +27,7 @@ export const ADMIN_NAV_SECTIONS: readonly AdminNavSection[] = [
     items: [
       { title: "Clientes", to: "/admin/clientes" },
       { title: "Mensajes", to: "/admin/mensajes" },
+      { title: "Bot WhatsApp", to: "/admin/whatsapp-config" },
       { title: "Marketing", to: "/admin/marketing" },
     ],
   },
@@ -59,7 +60,6 @@ export const ADMIN_NAV_HIDDEN_HREFS = [
   "/admin/botmaker",
   "/admin/notificaciones",
   "/admin/agente-whatsapp",
-  "/admin/whatsapp-config",
   "/admin/app-config",
   "/admin/early-access",
   "/admin/leads-kipper",
